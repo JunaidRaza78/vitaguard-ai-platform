@@ -173,7 +173,7 @@ npm run dev
 ## Project Structure
 
 ```
-agentic-ai-family-health-manager/
+agentic-ai-family-health-manager/Backend
 ├── services/
 │   ├── user_service/              # Port 8001
 │   ├── health_graph_service/      # Port 8002
