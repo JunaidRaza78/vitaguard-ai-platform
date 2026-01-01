@@ -49,10 +49,10 @@ The Agentic AI Family Health Manager is a comprehensive healthcare management sy
                                  │
 ┌─────────────────────────────────────────────────────────────────┐
 │                          Data Layer                              │
-├──────────────┬──────────────┬──────────────┬────────────────────┤
-│ Neo4j (7687) │ PostgreSQL   │ MongoDB      │ Redis (6379)       │
-│ Knowledge    │ Transactional│ Documents &  │ Cache & Sessions   │
-│ Graph        │ Data         │ Chat History │                    │
+├──────────────┬──────────────┬────────────────────────────────────┤
+│ Neo4j (7687) │ PostgreSQL   │ Redis (6379)                       │
+│ Knowledge    │ Transactional│ Cache & Sessions                   │
+│ Graph        │ Data         │                                    │
 ├──────────────┼──────────────┼──────────────┼────────────────────┤
 │ Pinecone/    │ Elasticsearch│ AWS S3       │ RabbitMQ (5672)    │
 │ Weaviate     │ Search (9200)│ File Storage │ Message Queue      │
@@ -75,8 +75,7 @@ The Agentic AI Family Health Manager is a comprehensive healthcare management sy
 
 ### Databases
 - **Neo4j 5.15+**: Knowledge graph for health relationships
-- **PostgreSQL 17**: Transactional data and authentication
-- **MongoDB 7.0+**: Document storage and chat conversations
+- **PostgreSQL 17**: Transactional data, authentication, and chat conversations
 - **Redis 7.2+**: Caching, sessions, and conversation memory
 - **Pinecone/Weaviate/ chroma**: Vector database for medical knowledge embeddings
 - **Elasticsearch 8.x**: Full-text search
@@ -105,7 +104,6 @@ The Agentic AI Family Health Manager is a comprehensive healthcare management sy
 - Node.js 18+ (for frontend)
 - Neo4j 5.15+
 - PostgreSQL 15+
-- MongoDB 7.0+
 - Redis 7.2+
 
 ### Installation
@@ -134,7 +132,7 @@ npm install
 
 4. **Start infrastructure services**
 ```bash
-docker-compose up -d neo4j postgres mongodb redis rabbitmq elasticsearch
+docker-compose up -d neo4j postgres redis rabbitmq elasticsearch
 ```
 
 5. **Initialize databases**
@@ -213,7 +211,6 @@ agentic-ai-family-health-manager/
 │   ├── database/
 │   │   ├── neo4j_client.py
 │   │   ├── postgres_client.py
-│   │   ├── mongo_client.py
 │   │   └── redis_client.py
 │   ├── models/
 │   ├── utils/
@@ -364,9 +361,6 @@ POSTGRES_PORT=5432
 POSTGRES_DB=health_manager
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your-postgres-password
-
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DB=health_manager
 
 REDIS_HOST=localhost
 REDIS_PORT=6379
