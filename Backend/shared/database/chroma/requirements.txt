@@ -1,0 +1,24 @@
+# FastAPI & Web Server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# Chroma DB Vector Database
+chromadb>=0.5.0
+
+# Open-source embeddings
+sentence-transformers>=2.5.0
+torch>=2.0.0
+
+# BM25 Search (Whoosh)
+whoosh>=2.7.4
+
+# PDF Processing
+PyPDF2>=3.0.0
+pycryptodome>=3.19.0
+
+# Utilities
+tenacity>=8.2.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+numpy>=1.24.0
