@@ -8,10 +8,10 @@ from typing import Optional
 from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import NullPool
-from backend.shared.logging import get_logger
+import logging
 
 # Initialize logger
-logger = get_logger('postgres.config')
+logger = logging.getLogger('postgres.config')
 
 # Load environment variables from .env file if it exists
 try:

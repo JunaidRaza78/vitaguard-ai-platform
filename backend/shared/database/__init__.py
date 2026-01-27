@@ -3,30 +3,61 @@ Database Clients Module
 Centralized database access for the Family Health Manager
 """
 
-from .postgres_client import (
-    PostgresClient,
-    postgres_client,
-    init_postgres,
-    close_postgres
-)
-from .neo4j_client import (
-    Neo4jClient,
-    neo4j_client,
-    init_neo4j,
-    close_neo4j
-)
-from .storage_client import (
-    StorageClient,
-    storage_client,
-    init_storage,
-    close_storage
-)
-from .redis_client import (
-    RedisClient,
-    redis_client,
-    init_redis,
-    close_redis
-)
+from .postgres.postgres_client import PostgresClient, get_postgres_client
+from .neo4j.neo4j_client import Neo4jClient
+from .redis.redis_client import RedisClient
+
+# Storage client - import only if needed (requires azure package)
+try:
+    from .storage_client import StorageClient
+    storage_client = StorageClient()
+except ImportError:
+    StorageClient = None
+    storage_client = None
+
+# Create singleton instances for convenience
+postgres_client = get_postgres_client()
+neo4j_client = None  # Initialize when needed
+redis_client = None  # Initialize when needed
+
+# Helper functions
+async def init_postgres(**config):
+    """Initialize PostgreSQL client"""
+    return postgres_client
+
+async def close_postgres():
+    """Close PostgreSQL connection"""
+    await postgres_client.disconnect()
+
+async def init_neo4j(**config):
+    """Initialize Neo4j client"""
+    global neo4j_client
+    neo4j_client = Neo4jClient(**config)
+    return neo4j_client
+
+async def close_neo4j():
+    """Close Neo4j connection"""
+    if neo4j_client:
+        await neo4j_client.close()
+
+async def init_storage(**config):
+    """Initialize storage client"""
+    return storage_client
+
+async def close_storage():
+    """Close storage connection"""
+    pass  # Storage client doesn't need explicit close
+
+async def init_redis(**config):
+    """Initialize Redis client"""
+    global redis_client
+    redis_client = RedisClient(**config)
+    return redis_client
+
+async def close_redis():
+    """Close Redis connection"""
+    if redis_client:
+        await redis_client.close()
 
 __all__ = [
     # PostgreSQL

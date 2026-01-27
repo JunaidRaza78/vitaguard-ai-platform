@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Optional
 import redis
 from redis import Redis, ConnectionPool
-from backend.shared.logging import get_logger
+import logging
 
 # Initialize logger
-logger = get_logger('redis.config')
+logger = logging.getLogger('redis.config')
 
 # Load environment variables from .env file if it exists
 try:

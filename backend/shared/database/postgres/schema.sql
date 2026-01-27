@@ -6,11 +6,32 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Users Table
 CREATE TABLE IF NOT EXISTS users (
-    user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
     email VARCHAR(255) NOT NULL UNIQUE,
+    username VARCHAR(255) UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
+
+    -- Profile fields
+    first_name VARCHAR(255),
+    last_name VARCHAR(255),
+    phone_number VARCHAR(50),
+    date_of_birth VARCHAR(20),
+    gender VARCHAR(20),
+    avatar_url VARCHAR(500),
+    timezone VARCHAR(100) NOT NULL DEFAULT 'UTC',
+    language VARCHAR(10) NOT NULL DEFAULT 'en',
+
+    -- Account status
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_verified BOOLEAN NOT NULL DEFAULT FALSE,
+    is_superuser BOOLEAN NOT NULL DEFAULT FALSE,
+
+    -- Security fields
+    failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+    account_locked_until TIMESTAMP WITH TIME ZONE,
+    password_changed_at TIMESTAMP WITH TIME ZONE,
+
+    -- Timestamps
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     last_login TIMESTAMP WITH TIME ZONE
@@ -36,12 +57,12 @@ CREATE TRIGGER update_users_updated_at
 
 -- User Sessions Table
 CREATE TABLE IF NOT EXISTS user_sessions (
-    session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    session_id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     token TEXT NOT NULL,
     expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
-    ip_address INET,
+    ip_address VARCHAR(45),
     user_agent TEXT,
     device_info JSONB
 );
@@ -56,8 +77,8 @@ CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
 DROP TABLE IF EXISTS notifications CASCADE;
 
 CREATE TABLE notifications (
-    notification_id UUID DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    notification_id VARCHAR(255) DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL,
     title VARCHAR(255),
     message TEXT NOT NULL,
@@ -108,7 +129,7 @@ DROP TABLE IF EXISTS audit_logs CASCADE;
 
 CREATE TABLE audit_logs (
     log_id BIGSERIAL,
-    user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+    user_id VARCHAR(255) REFERENCES users(user_id) ON DELETE SET NULL,
     action VARCHAR(255) NOT NULL,
     resource_type VARCHAR(255),
     resource_id VARCHAR(255),
@@ -150,8 +171,8 @@ SELECT create_audit_logs_partition((CURRENT_DATE + INTERVAL '1 month')::DATE);
 
 -- Document Jobs Table
 CREATE TABLE IF NOT EXISTS document_jobs (
-    job_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    job_id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     file_path TEXT NOT NULL,
     file_type VARCHAR(255),
     status VARCHAR(50) NOT NULL,
@@ -171,7 +192,7 @@ CREATE INDEX IF NOT EXISTS idx_document_jobs_status ON document_jobs(status);
 -- API Rate Limits Table
 CREATE TABLE IF NOT EXISTS api_rate_limits (
     id BIGSERIAL PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     endpoint VARCHAR(255) NOT NULL,
     request_count INTEGER NOT NULL DEFAULT 0,
     window_start TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -185,7 +206,7 @@ CREATE INDEX IF NOT EXISTS idx_api_rate_limits_window_start ON api_rate_limits(w
 
 CREATE TABLE IF NOT EXISTS conversations (
     conversation_id VARCHAR(255) PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     title VARCHAR(500),
     status VARCHAR(50) NOT NULL DEFAULT 'active',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -217,7 +238,7 @@ CREATE TRIGGER update_conversations_updated_at
 
 -- Chat Messages Table (Links to conversations table)
 CREATE TABLE IF NOT EXISTS chat_messages (
-    message_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    message_id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
     conversation_id VARCHAR(255) NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
     role VARCHAR(50) NOT NULL,
     content TEXT NOT NULL,
@@ -254,9 +275,9 @@ CREATE TRIGGER update_conversation_on_message_insert
 
 -- Chat Feedback Table
 CREATE TABLE IF NOT EXISTS chat_feedback (
-    feedback_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    feedback_id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
     conversation_id VARCHAR(255) NOT NULL REFERENCES conversations(conversation_id) ON DELETE CASCADE,
-    message_id UUID NOT NULL REFERENCES chat_messages(message_id) ON DELETE CASCADE,
+    message_id VARCHAR(255) NOT NULL REFERENCES chat_messages(message_id) ON DELETE CASCADE,
     rating VARCHAR(50) NOT NULL,
     comment TEXT,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
@@ -308,5 +329,40 @@ CREATE INDEX IF NOT EXISTS idx_chat_metrics_created_at ON chat_metrics(created_a
 -- Create initial partitions for current month and next month
 SELECT create_chat_metrics_partition(CURRENT_DATE);
 SELECT create_chat_metrics_partition((CURRENT_DATE + INTERVAL '1 month')::DATE);
+
+-- Refresh Tokens Table
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    token_id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    token TEXT NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    device_info VARCHAR(500),
+    ip_address VARCHAR(45)
+);
+
+-- Create indexes on refresh_tokens
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token ON refresh_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+
+-- Login Attempts Table
+CREATE TABLE IF NOT EXISTS login_attempts (
+    attempt_id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR(255) REFERENCES users(user_id) ON DELETE SET NULL,
+    email VARCHAR(255) NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    success BOOLEAN NOT NULL DEFAULT FALSE,
+    failure_reason VARCHAR(255),
+    attempted_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- Create indexes on login_attempts
+CREATE INDEX IF NOT EXISTS idx_login_attempts_user_id ON login_attempts(user_id);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts(email);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_attempted_at ON login_attempts(attempted_at);
 
 -- Conversations Table (Unified conversation storage)

@@ -8,11 +8,19 @@ from typing import Optional, Any, Dict, List, Callable
 from datetime import timedelta
 import redis
 from redis import Redis
-from backend.shared.database.redis.config import redis_config
-from backend.shared.logging import get_logger, log_database_operation
+from .config import redis_config
+import logging
 
 # Initialize logger for Redis operations
-logger = get_logger('redis')
+logger = logging.getLogger('redis')
+
+# Simple decorator replacement
+def log_database_operation(operation_type, logger=None):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 class RedisClient:

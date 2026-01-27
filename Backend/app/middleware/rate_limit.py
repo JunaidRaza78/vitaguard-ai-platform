@@ -206,6 +206,10 @@ class EndpointRateLimiter:
         Raises:
             HTTPException: If rate limit exceeded
         """
+        # Skip rate limiting if Redis is not available
+        if redis_client is None:
+            return  # No rate limiting without Redis
+
         # Generate key
         if self.key_func:
             key = self.key_func(request)

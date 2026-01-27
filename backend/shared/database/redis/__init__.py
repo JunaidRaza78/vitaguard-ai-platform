@@ -2,8 +2,11 @@
 Redis package for cache and session store.
 Provides in-memory speed, data structure support, and pub/sub capabilities.
 """
-from backend.shared.database.redis.config import RedisConfig, redis_config
-from backend.shared.database.redis.redis_client import RedisClient, get_redis_client
+from .config import RedisConfig, redis_config
+from .redis_client import RedisClient
+
+def get_redis_client():
+    return RedisClient()
 
 __all__ = [
     "RedisConfig",

@@ -6,10 +6,10 @@ import os
 from pathlib import Path
 from typing import Optional
 from neo4j import GraphDatabase
-from backend.shared.logging import get_logger
+import logging
 
 # Initialize logger for Neo4j operations
-logger = get_logger('neo4j')
+logger = logging.getLogger('neo4j')
 
 # Load environment variables from .env file if it exists
 try:

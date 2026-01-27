@@ -1,0 +1,78 @@
+# ==========================================
+# Family Health Manager - Unified API
+# Python Dependencies
+# ==========================================
+
+# ==========================================
+# WEB FRAMEWORK & SERVER
+# ==========================================
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# ==========================================
+# DATABASE CLIENTS
+# ==========================================
+# PostgreSQL
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+asyncpg>=0.29.0
+
+# Redis (Caching)
+redis>=5.0.0
+
+# Neo4j (Graph Database)
+neo4j>=5.15.0
+
+# ==========================================
+# AUTHENTICATION & SECURITY
+# ==========================================
+pyjwt>=2.8.0
+passlib[bcrypt]>=1.7.4
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.1.0
+
+# ==========================================
+# VALIDATION & CONFIGURATION
+# ==========================================
+pydantic>=2.6.0
+pydantic-settings>=2.0.0
+email-validator>=2.1.0
+python-dotenv>=1.0.0
+
+# ==========================================
+# RAG CHATBOT - AI/ML
+# ==========================================
+# Vector Database & Embeddings
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+
+# BM25 Keyword Search
+whoosh>=2.7.4
+
+# HTTP Client for Ollama
+httpx>=0.27.0
+
+# ==========================================
+# UTILITIES
+# ==========================================
+python-dateutil>=2.8.2
+
+# Logging & Monitoring
+structlog>=23.2.0
+
+# Rate Limiting
+slowapi>=0.1.9
+
+# PDF Processing (for medical documents)
+PyPDF2>=3.0.0
+
+# ==========================================
+# DEVELOPMENT & TESTING (Optional)
+# ==========================================
+# Uncomment for development
+# pytest>=7.4.0
+# pytest-asyncio>=0.21.0
+# httpx>=0.25.0  # For testing
+# black>=23.0.0  # Code formatting
+# flake8>=6.0.0  # Linting

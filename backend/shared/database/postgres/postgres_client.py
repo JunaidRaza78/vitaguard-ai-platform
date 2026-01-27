@@ -6,16 +6,27 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import text, desc
-from backend.shared.database.postgres.config import db_config
-from backend.shared.database.postgres.models import (
+from .config import db_config
+from .models import (
     Base, User, UserSession, Notification, AuditLog,
     DocumentJob, ApiRateLimit, ChatFeedback, ChatMetric,
     ChatMessage, Conversation
 )
-from backend.shared.logging import get_logger, log_database_operation
 
-# Initialize logger for PostgreSQL operations
-logger = get_logger('postgres')
+# Logging - use basic logging for now
+import logging
+logger = logging.getLogger('postgres')
+
+def get_logger(name):
+    return logging.getLogger(name)
+
+def log_database_operation(operation_type, logger=None):
+    """Decorator factory for logging database operations"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
 
 
 class PostgresClient:

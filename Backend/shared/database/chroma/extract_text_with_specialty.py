@@ -14,7 +14,10 @@ import uuid
 import hashlib
 import logging
 from datetime import datetime
-from agent_types import MedicalSpecialty, get_agent_specialty
+try:
+    from .agent_types import MedicalSpecialty, get_agent_specialty
+except ImportError:
+    from agent_types import MedicalSpecialty, get_agent_specialty
 
 # Setup logging
 logging.basicConfig(
@@ -196,8 +199,14 @@ def ingest_medical_pdfs():
     print("STEP 1: Extract PDF with Agent/Specialty")
     print("="*60)
 
-    # Find ALL PDFs
-    dataset_dir = Path("../../../dataset")
+    # Find ALL PDFs - use absolute path relative to this script's location
+    # This script is in Backend/shared/database/chroma/
+    # Dataset is in project_root/dataset/ (one level above Backend)
+    script_dir = Path(__file__).parent  # .../Backend/shared/database/chroma
+    backend_dir = script_dir.parent.parent.parent  # .../Backend
+    dataset_dir = backend_dir.parent / "dataset"  # .../project_root/dataset
+    
+    print(f"\\n📁 Looking for PDFs in: {dataset_dir}")
     pdf_files = list(dataset_dir.glob("*.pdf"))
 
     if not pdf_files:

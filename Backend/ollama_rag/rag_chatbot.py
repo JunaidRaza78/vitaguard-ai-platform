@@ -18,10 +18,10 @@ from dataclasses import dataclass, field
 import uuid
 import time
 
-from web_search import duckduckgo_medical_search
+from .web_search import duckduckgo_medical_search
 
 # Import prompts from external file
-from prompts import (
+from .prompts import (
     MEDICAL_SYSTEM_PROMPT,
     FOLLOWUP_INSTRUCTION,
     ADVICE_INSTRUCTION,
@@ -39,9 +39,14 @@ CHROMA_DIR = BACKEND_DIR / "shared" / "database" / "chroma"
 sys.path.insert(0, str(CHROMA_DIR))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ollama_client import get_ollama_client
-from query_by_agent import query_medical_documents
-from postgres_rag import get_rag_postgres_client
+from .ollama_client import get_ollama_client
+from .postgres_rag import get_rag_postgres_client
+
+# Try importing chroma-based query, fallback to None if not available
+try:
+    from shared.database.chroma.query_by_agent import query_medical_documents
+except ImportError:
+    query_medical_documents = None
 
 # ------------------------------------------------------------------
 # LOGGING

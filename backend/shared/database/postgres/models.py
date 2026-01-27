@@ -20,9 +20,30 @@ class User(Base):
 
     user_id = Column(String(255), primary_key=True, default=lambda: str(uuid.uuid4()))
     email = Column(String(255), unique=True, nullable=False, index=True)
+    username = Column(String(255), unique=True, nullable=True, index=True)
     password_hash = Column(String(255), nullable=False)
+
+    # Profile fields
+    first_name = Column(String(255), nullable=True)
+    last_name = Column(String(255), nullable=True)
+    phone_number = Column(String(50), nullable=True)
+    date_of_birth = Column(String(20), nullable=True)
+    gender = Column(String(20), nullable=True)
+    avatar_url = Column(String(500), nullable=True)
+    timezone = Column(String(100), default="UTC", nullable=False)
+    language = Column(String(10), default="en", nullable=False)
+
+    # Account status
     is_active = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
+    is_superuser = Column(Boolean, default=False, nullable=False)
+
+    # Security fields
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    account_locked_until = Column(DateTime(timezone=True), nullable=True)
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Timestamps
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     last_login = Column(DateTime(timezone=True))
@@ -34,9 +55,62 @@ class User(Base):
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
     document_jobs = relationship("DocumentJob", back_populates="user", cascade="all, delete-orphan")
     api_rate_limits = relationship("ApiRateLimit", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    login_attempts = relationship("LoginAttempt", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<User(id={self.user_id}, email={self.email})>"
+
+
+class RefreshToken(Base):
+    """Refresh tokens for JWT authentication"""
+    __tablename__ = "refresh_tokens"
+
+    token_id = Column(String(255), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(
+        String(255),
+        ForeignKey('users.user_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+    token = Column(String, nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    revoked = Column(Boolean, default=False, nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    device_info = Column(String(500), nullable=True)
+    ip_address = Column(String(45), nullable=True)
+
+    # Relationship to User
+    user = relationship("User", back_populates="refresh_tokens")
+
+    def __repr__(self) -> str:
+        return f"<RefreshToken(id={self.token_id}, user={self.user_id}, revoked={self.revoked})>"
+
+
+class LoginAttempt(Base):
+    """Login attempts for security tracking"""
+    __tablename__ = "login_attempts"
+
+    attempt_id = Column(String(255), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(
+        String(255),
+        ForeignKey('users.user_id', ondelete='SET NULL'),
+        nullable=True,
+        index=True
+    )
+    email = Column(String(255), nullable=False, index=True)
+    ip_address = Column(String(45), nullable=True)
+    user_agent = Column(String, nullable=True)
+    success = Column(Boolean, default=False, nullable=False)
+    failure_reason = Column(String(255), nullable=True)
+    attempted_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+    # Relationship to User (optional - may not exist if email doesn't match)
+    user = relationship("User", back_populates="login_attempts")
+
+    def __repr__(self) -> str:
+        return f"<LoginAttempt(id={self.attempt_id}, email={self.email}, success={self.success})>"
 
 
 class Conversation(Base):
