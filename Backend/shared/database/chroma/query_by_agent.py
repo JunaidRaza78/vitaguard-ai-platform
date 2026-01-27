@@ -4,46 +4,62 @@ from sentence_transformers import SentenceTransformer
 from whoosh.index import create_in, open_dir
 from whoosh.fields import Schema, TEXT, ID
 from whoosh.qparser import QueryParser
+from pathlib import Path
 import os
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# -------------------------------------------------
+# LOGGING
+# -------------------------------------------------
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===============================
-# INIT
-# ===============================
-logger.info("Initializing SentenceTransformer model and ChromaDB")
+# -------------------------------------------------
+# 🔒 SINGLE SOURCE OF TRUTH (ABSOLUTE PATH)
+# -------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parents[3]  # Backend/
+CHROMA_DATA_PATH = BASE_DIR / "shared" / "database" / "chroma" / "chroma_data"
+BM25_INDEX_PATH = BASE_DIR / "shared" / "database" / "chroma" / "bm25_index"
+
+logger.info(f"Using ChromaDB path: {CHROMA_DATA_PATH}")
+
+# -------------------------------------------------
+# INIT MODELS
+# -------------------------------------------------
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
-client = chromadb.PersistentClient(path="./chroma_data")
-collection = client.get_collection("medical_docs")
-logger.info(f"Connected to ChromaDB. Collection size: {collection.count()}")
+client = chromadb.PersistentClient(path=str(CHROMA_DATA_PATH))
 
-# ===============================
-# BM25 INDEX SETUP
-# ===============================
-INDEX_DIR = "bm25_index"
+# 🔒 SAFE COLLECTION LOAD (NO CRASH)
+try:
+    collection = client.get_collection("medical_docs")
+except Exception:
+    logger.warning("Collection 'medical_docs' not found. Creating empty collection.")
+    collection = client.get_or_create_collection("medical_docs")
 
+logger.info(f"Chroma collection size: {collection.count()}")
+
+# -------------------------------------------------
+# BM25 SCHEMA
+# -------------------------------------------------
 schema = Schema(
     id=ID(stored=True),
     text=TEXT(stored=True),
     specialty=ID(stored=True)
 )
 
+# -------------------------------------------------
+# BUILD BM25 INDEX
+# -------------------------------------------------
 def build_bm25_index():
-    if not os.path.exists(INDEX_DIR):
-        os.mkdir(INDEX_DIR)
-        ix = create_in(INDEX_DIR, schema)
+    BM25_INDEX_PATH.mkdir(exist_ok=True)
+
+    if not os.listdir(BM25_INDEX_PATH):
+        ix = create_in(BM25_INDEX_PATH, schema)
     else:
-        ix = open_dir(INDEX_DIR)
+        ix = open_dir(BM25_INDEX_PATH)
 
     writer = ix.writer()
 
-    # ❌ REMOVE "ids" from include
     docs = collection.get(include=["documents", "metadatas"])
 
     for doc_id, text, meta in zip(
@@ -59,40 +75,30 @@ def build_bm25_index():
     writer.commit()
     return ix
 
-
-
-# ===============================
-# SEMANTIC SEARCH (EXISTING)
-# ===============================
+# -------------------------------------------------
+# SEMANTIC SEARCH
+# -------------------------------------------------
 def query_agent(query_text, agent_specialty=None, n_results=5):
-    query_embedding = model.encode(query_text).tolist()
+    embedding = model.encode(query_text).tolist()
 
-    where_filter = {"specialty": agent_specialty} if agent_specialty else None
+    where = {"specialty": agent_specialty} if agent_specialty else None
 
     return collection.query(
-        query_embeddings=[query_embedding],
+        query_embeddings=[embedding],
         n_results=n_results,
-        where=where_filter,
+        where=where,
         include=["documents", "metadatas", "distances"]
     )
 
-
-# ===============================
+# -------------------------------------------------
 # 🔥 HYBRID SEARCH (SEMANTIC + BM25)
-# ===============================
+# -------------------------------------------------
 def query_medical_documents(
     query_text: str,
     agent_specialty: str | None = None,
     n_results: int = 5,
     alpha: float = 0.7
 ):
-    """
-    Hybrid Search:
-    - alpha * semantic score
-    - (1-alpha) * keyword (BM25) score
-    """
-
-    # ---------- Semantic ----------
     semantic = query_agent(query_text, agent_specialty, n_results * 2)
 
     semantic_scores = {}
@@ -103,10 +109,9 @@ def query_medical_documents(
         semantic["metadatas"][0],
         semantic["distances"][0]
     ):
-        semantic_scores[doc] = (1 - dist)
+        semantic_scores[doc] = 1 - dist
         semantic_meta[doc] = meta
 
-    # ---------- BM25 ----------
     ix = build_bm25_index()
     bm25_scores = {}
 
@@ -120,24 +125,22 @@ def query_medical_documents(
                 continue
             bm25_scores[hit["text"]] = hit.score
 
-    # ---------- Combine ----------
     combined = {}
 
-    for doc, s_score in semantic_scores.items():
-        combined[doc] = alpha * s_score
+    for doc, s in semantic_scores.items():
+        combined[doc] = alpha * s
 
-    for doc, k_score in bm25_scores.items():
-        combined[doc] = combined.get(doc, 0) + (1 - alpha) * k_score
+    for doc, k in bm25_scores.items():
+        combined[doc] = combined.get(doc, 0) + (1 - alpha) * k
 
     ranked = sorted(combined.items(), key=lambda x: x[1], reverse=True)[:n_results]
 
-    # ---------- Response ----------
     response = []
     for doc, score in ranked:
         meta = semantic_meta.get(doc, {})
         response.append({
             "score": round(score * 100, 2),
-            "agent": meta.get("specialty"),
+            "agent": meta.get("specialty", "general"),
             "type": meta.get("type"),
             "source_file": meta.get("source_file"),
             "text": doc[:300] + "..." if len(doc) > 300 else doc
@@ -146,7 +149,6 @@ def query_medical_documents(
     return {
         "query": query_text,
         "agent": agent_specialty or "all",
-        "search_type": "HYBRID (SEMANTIC + BM25)",
         "count": len(response),
         "results": response
     }
