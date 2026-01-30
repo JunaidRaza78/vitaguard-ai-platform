@@ -41,6 +41,15 @@ except ImportError:
 # Direct import to avoid complex dependency chains
 from shared.database.postgres.postgres_client import PostgresClient
 
+# Neo4j client for graph database
+try:
+    from shared.database.neo4j.neo4j_client import Neo4jClient
+    neo4j_client = Neo4jClient()
+    NEO4J_AVAILABLE = True
+except Exception as e:
+    NEO4J_AVAILABLE = False
+    neo4j_client = None
+
 # Setup logging FIRST so we can see import errors
 logging.basicConfig(
     level=logging.INFO,
@@ -581,6 +590,19 @@ async def health_check():
             health_status["status"] = "degraded"
     else:
         health_status["services"]["ollama"] = "not_configured"
+
+    # Check Neo4j connection
+    if NEO4J_AVAILABLE and neo4j_client:
+        try:
+            if neo4j_client.health_check():
+                health_status["services"]["neo4j"] = "connected"
+            else:
+                health_status["services"]["neo4j"] = "disconnected"
+        except Exception as e:
+            logger.error(f"Neo4j health check failed: {e}")
+            health_status["services"]["neo4j"] = "unavailable"
+    else:
+        health_status["services"]["neo4j"] = "not_configured"
 
     # Return appropriate status code
     if health_status["status"] == "degraded":
