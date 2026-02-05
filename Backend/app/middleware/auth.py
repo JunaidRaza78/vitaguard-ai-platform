@@ -22,157 +22,6 @@ class AuthMiddleware:
     """Authentication middleware for FastAPI"""
 
     @staticmethod
-    async def get_current_user(
-        credentials: HTTPAuthorizationCredentials = Depends(security)
-    ) -> dict:
-        """
-        Get current authenticated user from JWT token.
-
-        Args:
-            credentials: HTTP Bearer credentials
-
-        Returns:
-            User data dictionary
-
-        Raises:
-            HTTPException: If token is invalid or user not found
-        """
-        token = credentials.credentials
-
-        # Verify token
-        payload = jwt_service.verify_access_token(token)
-
-        if not payload:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        user_id = UUID(payload.get("sub"))
-
-        # Check if session exists in Redis (fast)
-        session_data = await redis_client.get_json(f"session:{user_id}")
-
-        if session_data and session_data.get("access_token") == token:
-            # Valid cached session
-            user = await AuthMiddleware._get_user_from_db(user_id)
-            return user
-
-        # Session not in cache, verify in database
-        session = await postgres_client.fetchrow(
-            """
-            SELECT * FROM sessions
-            WHERE user_id = $1 AND access_token = $2 AND is_active = TRUE
-            """,
-            user_id, token
-        )
-
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session not found or expired",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # Check if session has expired
-        from datetime import datetime
-        if session['expires_at'] < datetime.utcnow():
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session has expired. Please login again.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # Get user from database
-        user = await AuthMiddleware._get_user_from_db(user_id)
-
-        # Update session cache
-        await redis_client.set_json(
-            f"session:{user_id}",
-            {
-                "session_id": str(session['session_id']),
-                "access_token": token,
-                "user_id": str(user_id)
-            },
-            ex=jwt_service.access_token_expire_minutes * 60
-        )
-
-        return user
-
-    @staticmethod
-    async def get_current_active_user(
-        current_user: dict = Depends(get_current_user)
-    ) -> dict:
-        """
-        Get current active user.
-
-        Args:
-            current_user: Current user from token
-
-        Returns:
-            User data dictionary
-
-        Raises:
-            HTTPException: If user is inactive
-        """
-        if not current_user.get("is_active"):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Inactive user account"
-            )
-
-        return current_user
-
-    @staticmethod
-    async def get_current_verified_user(
-        current_user: dict = Depends(get_current_active_user)
-    ) -> dict:
-        """
-        Get current verified user.
-
-        Args:
-            current_user: Current active user
-
-        Returns:
-            User data dictionary
-
-        Raises:
-            HTTPException: If user is not verified
-        """
-        if not current_user.get("is_verified"):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Email not verified. Please verify your email."
-            )
-
-        return current_user
-
-    @staticmethod
-    async def get_current_superuser(
-        current_user: dict = Depends(get_current_active_user)
-    ) -> dict:
-        """
-        Get current superuser.
-
-        Args:
-            current_user: Current active user
-
-        Returns:
-            User data dictionary
-
-        Raises:
-            HTTPException: If user is not a superuser
-        """
-        if not current_user.get("is_superuser"):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions. Superuser access required."
-            )
-
-        return current_user
-
-    @staticmethod
     async def _get_user_from_db(user_id: UUID) -> dict:
         """
         Get user from database.
@@ -247,8 +96,120 @@ class AuthMiddleware:
         return wrapper
 
 
-# Export commonly used dependencies
-get_current_user = AuthMiddleware.get_current_user
-get_current_active_user = AuthMiddleware.get_current_active_user
-get_current_verified_user = AuthMiddleware.get_current_verified_user
-get_current_superuser = AuthMiddleware.get_current_superuser
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+) -> dict:
+    """
+    Get current authenticated user from JWT token.
+
+    This is a FastAPI dependency function suitable for use with Depends().
+    """
+    token = credentials.credentials
+
+    # Verify token
+    payload = jwt_service.verify_access_token(token)
+
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id = UUID(payload.get("sub"))
+
+    # Check if session exists in Redis (fast)
+    session_data = await redis_client.get_json(f"session:{user_id}")
+
+    if session_data and session_data.get("access_token") == token:
+        # Valid cached session
+        user = await AuthMiddleware._get_user_from_db(user_id)
+        return user
+
+    # Session not in cache, verify in database
+    session = await postgres_client.fetchrow(
+        """
+        SELECT * FROM sessions
+        WHERE user_id = $1 AND access_token = $2 AND is_active = TRUE
+        """,
+        user_id,
+        token,
+    )
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session not found or expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Check if session has expired
+    from datetime import datetime
+
+    if session["expires_at"] < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has expired. Please login again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Get user from database
+    user = await AuthMiddleware._get_user_from_db(user_id)
+
+    # Update session cache
+    await redis_client.set_json(
+        f"session:{user_id}",
+        {
+            "session_id": str(session["session_id"]),
+            "access_token": token,
+            "user_id": str(user_id),
+        },
+        ex=jwt_service.access_token_expire_minutes * 60,
+    )
+
+    return user
+
+
+async def get_current_active_user(
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """
+    Get current active user.
+    """
+    if not current_user.get("is_active"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Inactive user account",
+        )
+
+    return current_user
+
+
+async def get_current_verified_user(
+    current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """
+    Get current verified user.
+    """
+    if not current_user.get("is_verified"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email not verified. Please verify your email.",
+        )
+
+    return current_user
+
+
+async def get_current_superuser(
+    current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """
+    Get current superuser.
+    """
+    if not current_user.get("is_superuser"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions. Superuser access required.",
+        )
+
+    return current_user

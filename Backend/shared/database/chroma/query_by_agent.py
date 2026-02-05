@@ -5,6 +5,7 @@ from whoosh.index import create_in, open_dir
 from whoosh.fields import Schema, TEXT, ID
 from whoosh.qparser import QueryParser
 from pathlib import Path
+from typing import Optional
 import os
 
 # -------------------------------------------------
@@ -95,7 +96,7 @@ def query_agent(query_text, agent_specialty=None, n_results=5):
 # -------------------------------------------------
 def query_medical_documents(
     query_text: str,
-    agent_specialty: str | None = None,
+    agent_specialty: Optional[str] = None,
     n_results: int = 5,
     alpha: float = 0.7
 ):

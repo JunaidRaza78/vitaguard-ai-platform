@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 import time
 import json
 import uuid
+from typing import Optional
 
 from fastapi import FastAPI, Request, status, HTTPException, Depends, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -249,11 +250,11 @@ app.include_router(auth_router)
 
 class ChatRequest(BaseModel):
     """Chat request model for RAG chatbot"""
-    message: str | None = None
-    question: str | None = None
-    conversation_id: str | None = None
-    user_id: str | None = None
-    specialty: str | None = None
+    message: Optional[str] = None
+    question: Optional[str] = None
+    conversation_id: Optional[str] = None
+    user_id: Optional[str] = None
+    specialty: Optional[str] = None
     top_k: int = 5
     temperature: float = 0.3
     stream: bool = False
@@ -386,7 +387,7 @@ def generate_embedding(req: EmbeddingRequest):
 class SearchRequest(BaseModel):
     """Search request model for hybrid search"""
     query: str
-    agent: str | None = None
+    agent: Optional[str] = None
     top_k: int = 5
 
 
