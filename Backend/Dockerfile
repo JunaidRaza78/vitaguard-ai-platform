@@ -4,7 +4,7 @@
 # ==========================================
 # STAGE 1: Builder
 # ==========================================
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
 LABEL maintainer="health-manager@example.com"
 LABEL description="Agentic AI Family Health Manager - Backend Application"
@@ -27,10 +27,12 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy requirements first for layer caching
-COPY Backend/requirements.txt /tmp/requirements.txt
+COPY requirements.txt /tmp/requirements.txt
 
 # Install Python dependencies
+# Install CPU-only PyTorch first (much smaller than full torch with CUDA)
 RUN pip install --upgrade pip && \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r /tmp/requirements.txt
 
 # ==========================================
@@ -60,11 +62,11 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 
 # Copy application code
-COPY Backend/ /app/
+COPY . /app/
 
-# Create necessary directories
-RUN mkdir -p /app/logs /app/uploads && \
-    chown -R appuser:appuser /app
+# Create necessary directories (including HuggingFace cache for model downloads)
+RUN mkdir -p /app/logs /app/uploads /app/dataset /home/appuser/.cache/huggingface && \
+    chown -R appuser:appuser /app /home/appuser
 
 # Switch to non-root user
 USER appuser
@@ -77,11 +79,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 EXPOSE ${PORT}
 
 # Run the application with Gunicorn
-CMD ["gunicorn", "app.main:app", \
+CMD ["gunicorn", "main:app", \
      "--bind", "0.0.0.0:8000", \
      "--workers", "4", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--timeout", "120", \
+     "--timeout", "300", \
      "--access-logfile", "-", \
      "--error-logfile", "-", \
      "--log-level", "info"]

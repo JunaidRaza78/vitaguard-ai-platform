@@ -10,7 +10,7 @@ from uuid import UUID
 import logging
 
 from app.auth.jwt import jwt_service
-from shared.database import postgres_client, redis_client
+import shared.database as db_module
 
 logger = logging.getLogger(__name__)
 
@@ -52,51 +52,34 @@ class AuthMiddleware:
         user_id = UUID(payload.get("sub"))
 
         # Check if session exists in Redis (fast)
-        session_data = await redis_client.get_json(f"session:{user_id}")
+        session_data = None
+        if db_module.redis_client:
+            try:
+                session_data = db_module.redis_client.cache_get(f"session:{user_id}")
+            except Exception as e:
+                logger.warning(f"Redis session lookup failed: {e}")
 
         if session_data and session_data.get("access_token") == token:
             # Valid cached session
             user = await AuthMiddleware._get_user_from_db(user_id)
             return user
 
-        # Session not in cache, verify in database
-        session = await postgres_client.fetchrow(
-            """
-            SELECT * FROM sessions
-            WHERE user_id = $1 AND access_token = $2 AND is_active = TRUE
-            """,
-            user_id, token
-        )
-
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session not found or expired",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # Check if session has expired
-        from datetime import datetime
-        if session['expires_at'] < datetime.utcnow():
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session has expired. Please login again.",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # Get user from database
+        # Session not in Redis cache, get user directly from DB
         user = await AuthMiddleware._get_user_from_db(user_id)
 
-        # Update session cache
-        await redis_client.set_json(
-            f"session:{user_id}",
-            {
-                "session_id": str(session['session_id']),
-                "access_token": token,
-                "user_id": str(user_id)
-            },
-            ex=jwt_service.access_token_expire_minutes * 60
-        )
+        # Cache session in Redis for future requests
+        if db_module.redis_client:
+            try:
+                db_module.redis_client.cache_set(
+                    f"session:{user_id}",
+                    {
+                        "access_token": token,
+                        "user_id": str(user_id)
+                    },
+                    ttl=jwt_service.access_token_expire_minutes * 60
+                )
+            except Exception as e:
+                logger.warning(f"Redis session cache failed: {e}")
 
         return user
 
@@ -186,18 +169,35 @@ class AuthMiddleware:
         Raises:
             HTTPException: If user not found
         """
-        user = await postgres_client.fetchrow(
-            "SELECT * FROM users WHERE user_id = $1",
-            user_id
-        )
-
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-
-        return dict(user)
+        from shared.database.postgres.postgres_client import PostgresClient
+        with PostgresClient() as client:
+            user = client.get_user_by_id(str(user_id))
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found"
+                )
+            # Extract data while session is still open
+            user_data = {
+                "user_id": user.user_id,
+                "email": user.email,
+                "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "phone_number": user.phone_number,
+                "date_of_birth": user.date_of_birth,
+                "gender": user.gender,
+                "avatar_url": user.avatar_url,
+                "timezone": user.timezone,
+                "language": user.language,
+                "is_active": user.is_active,
+                "is_verified": user.is_verified,
+                "is_superuser": user.is_superuser,
+                "created_at": str(user.created_at),
+                "updated_at": str(user.updated_at),
+                "last_login": str(user.last_login) if user.last_login else None,
+            }
+        return user_data
 
     @staticmethod
     def require_auth(func: Callable) -> Callable:

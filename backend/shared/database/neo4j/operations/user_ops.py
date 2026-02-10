@@ -4,8 +4,8 @@ Handles all CRUD operations for User nodes.
 """
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
-from backend.shared.database.neo4j.operations.graph_ops import GraphOperations
-from backend.shared.logging import get_logger
+from shared.database.neo4j.operations.graph_ops import GraphOperations
+from shared.logging import get_logger
 
 logger = get_logger('neo4j.user_ops')
 

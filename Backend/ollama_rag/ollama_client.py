@@ -6,6 +6,7 @@ Production-ready for Medical RAG systems
 import httpx
 import json
 import logging
+import os
 import time
 import uuid
 from typing import Generator, Optional
@@ -38,7 +39,7 @@ Always advise consulting a licensed healthcare professional.
 # -------------------------------------------------------------------
 @dataclass
 class OllamaConfig:
-    base_url: str = "http://localhost:11434"
+    base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     model: str = "deepseek-r1:8b"
 
     timeout: httpx.Timeout = field(default_factory=lambda: httpx.Timeout(

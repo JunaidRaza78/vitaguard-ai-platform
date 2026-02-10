@@ -160,7 +160,7 @@ def send_message(
             payload["specialty"] = specialty
         
         if "user" in st.session_state and st.session_state.user:
-            payload["user_id"] = st.session_state.user.get("id")
+            payload["user_id"] = st.session_state.user.get("user_id")
         
         response = requests.post(
             f"{API_BASE_URL}/api/v1/chat",

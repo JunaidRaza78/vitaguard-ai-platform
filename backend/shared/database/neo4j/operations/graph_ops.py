@@ -3,8 +3,8 @@ Generic graph operations for nodes and relationships.
 Provides low-level CRUD operations that other modules can use.
 """
 from typing import Optional, Dict, Any, List
-from backend.shared.database.neo4j.neo4j_client import BaseNeo4jClient
-from backend.shared.logging import get_logger
+from shared.database.neo4j.neo4j_client import BaseNeo4jClient
+from shared.logging import get_logger
 
 logger = get_logger('neo4j.graph_ops')
 

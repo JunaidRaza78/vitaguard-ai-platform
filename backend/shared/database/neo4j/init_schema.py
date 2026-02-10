@@ -5,11 +5,11 @@ Run this script once to set up the database schema.
 import sys
 from pathlib import Path
 
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# Add Backend directory to path for imports (works in Docker and locally)
+backend_dir = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(backend_dir))
 
-from backend.shared.database.neo4j import Neo4jClient
+from shared.database.neo4j import Neo4jClient
 
 
 def init_schema():

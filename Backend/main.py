@@ -27,6 +27,27 @@ sys.path.insert(0, str(backend_dir))
 
 # Import authentication router
 from app.api.auth import router as auth_router
+from shared.database.redis.redis_client import RedisClient
+
+# Import notifications router
+try:
+    from app.api.notifications import router as notifications_router
+    NOTIFICATIONS_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Notifications router not available: {e}")
+    notifications_router = None
+    NOTIFICATIONS_AVAILABLE = False
+
+# Import Google OAuth router
+try:
+    from app.api.google_auth_routes import router as google_auth_router
+    GOOGLE_AUTH_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Google Auth router not available: {e}")
+    google_auth_router = None
+    GOOGLE_AUTH_AVAILABLE = False
 
 # Import RAG chatbot components
 try:
@@ -58,7 +79,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Dataset directory for uploaded files
-DATASET_DIR = Path(__file__).parent.parent / "dataset"
+import os
+if os.path.exists("/app"):
+    # Docker environment
+    DATASET_DIR = Path("/app/dataset")
+else:
+    # Local development - dataset folder inside Backend
+    DATASET_DIR = Path(__file__).parent / "dataset"
 DATASET_DIR.mkdir(exist_ok=True)
 
 # Import document processing functions
@@ -99,6 +126,16 @@ async def lifespan(app: FastAPI):
 
     # PostgreSQL client uses context manager pattern - will connect when used
     logger.info("✅ PostgreSQL client initialized (connects on first use)")
+
+    # Initialize Redis client
+    try:
+        from shared.database import init_redis, redis_client
+        import shared.database as db_module
+        db_module.redis_client = RedisClient()
+        db_module.redis_client.get_client()  # Test connection
+        logger.info("✅ Redis client initialized")
+    except Exception as e:
+        logger.warning(f"⚠️  Redis client initialization failed: {e}")
 
     # Test Ollama connection
     if get_ollama_client:
@@ -241,6 +278,30 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 # Include authentication endpoints under /api/v1/auth
 app.include_router(auth_router)
+
+
+# ==========================================
+# NOTIFICATIONS ROUTER
+# ==========================================
+
+# Include notifications endpoints under /api/v1/notifications
+if NOTIFICATIONS_AVAILABLE and notifications_router:
+    app.include_router(notifications_router)
+    logger.info("✅ Notifications router loaded")
+else:
+    logger.warning("⚠️ Notifications router not available")
+
+
+# ==========================================
+# GOOGLE OAUTH ROUTER
+# ==========================================
+
+# Include Google OAuth endpoints under /api/v1/auth/google
+if GOOGLE_AUTH_AVAILABLE and google_auth_router:
+    app.include_router(google_auth_router)
+    logger.info("✅ Google Auth router loaded")
+else:
+    logger.warning("⚠️ Google Auth router not available")
 
 
 # ==========================================
@@ -531,6 +592,21 @@ async def root():
                 "reset_password": "/api/v1/auth/reset-password",
                 "change_password": "/api/v1/auth/change-password"
             },
+            "google_oauth": {
+                "login": "/api/v1/auth/google/login",
+                "callback": "/api/v1/auth/google/callback",
+                "status": "/api/v1/auth/google/status"
+            },
+            "notifications": {
+                "my_notifications": "/api/v1/notifications/me",
+                "my_medication_reminders": "/api/v1/notifications/me/medications",
+                "create": "/api/v1/notifications/create",
+                "create_medication_reminder": "/api/v1/notifications/medication-reminder",
+                "send": "/api/v1/notifications/send/{notification_id}",
+                "process_pending": "/api/v1/notifications/process-pending",
+                "create_daily_reminders": "/api/v1/notifications/create-daily-reminders",
+                "test_email": "/api/v1/notifications/test-email"
+            },
             "medical_chatbot": {
                 "chat": "/api/v1/chat",
                 "embeddings": "/api/v1/embeddings/generate"
@@ -603,6 +679,18 @@ async def health_check():
             health_status["services"]["neo4j"] = "unavailable"
     else:
         health_status["services"]["neo4j"] = "not_configured"
+
+    # Check Notifications service
+    if NOTIFICATIONS_AVAILABLE:
+        health_status["services"]["notifications"] = "available"
+    else:
+        health_status["services"]["notifications"] = "unavailable"
+
+    # Check Google Auth service
+    if GOOGLE_AUTH_AVAILABLE:
+        health_status["services"]["google_oauth"] = "available"
+    else:
+        health_status["services"]["google_oauth"] = "unavailable"
 
     # Return appropriate status code
     if health_status["status"] == "degraded":

@@ -43,8 +43,8 @@ class User(BaseModel):
     language: str = "en"
 
     class Config:
-        orm_mode = True
-        schema_extra = {
+        from_attributes = True
+        json_schema_extra = {
             "example": {
                 "email": "user@example.com",
                 "username": "john_doe",
@@ -71,7 +71,7 @@ class RefreshToken(BaseModel):
     ip_address: Optional[str] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class LoginAttempt(BaseModel):
@@ -86,7 +86,7 @@ class LoginAttempt(BaseModel):
     attempted_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class Session(BaseModel):
@@ -105,4 +105,4 @@ class Session(BaseModel):
     is_active: bool = True
 
     class Config:
-        orm_mode = True
+        from_attributes = True

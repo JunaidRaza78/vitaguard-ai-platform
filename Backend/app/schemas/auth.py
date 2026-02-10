@@ -54,7 +54,7 @@ class UserRegister(BaseModel):
         return v
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@example.com",
                 "username": "john_doe",
@@ -74,7 +74,7 @@ class UserLogin(BaseModel):
     remember_me: bool = False
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@example.com",
                 "password": "SecurePass123!",
@@ -93,7 +93,7 @@ class TokenResponse(BaseModel):
     user: "UserResponse"
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                 "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -116,7 +116,7 @@ class TokenRefresh(BaseModel):
     refresh_token: str
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
             }
@@ -141,7 +141,7 @@ class UserResponse(BaseModel):
     language: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class UserUpdate(BaseModel):
@@ -157,7 +157,7 @@ class UserUpdate(BaseModel):
     language: Optional[str] = None
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "first_name": "John",
                 "last_name": "Doe Updated",
@@ -197,7 +197,7 @@ class PasswordChange(BaseModel):
         return v
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "current_password": "OldPass123!",
                 "new_password": "NewSecurePass456!",
@@ -212,7 +212,7 @@ class PasswordReset(BaseModel):
     email: EmailStr
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@example.com"
             }
@@ -255,7 +255,7 @@ class EmailVerification(BaseModel):
     token: str
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "token": "abc123def456"
             }
@@ -269,7 +269,7 @@ class MessageResponse(BaseModel):
     success: bool = True
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "message": "Operation successful",
                 "success": True
