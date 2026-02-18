@@ -10,7 +10,7 @@ from .config import db_config
 from .models import (
     Base, User, UserSession, Notification, AuditLog,
     DocumentJob, ApiRateLimit, ChatFeedback, ChatMetric,
-    ChatMessage, Conversation
+    ChatMessage, Conversation, HealthEvent
 )
 
 # Logging - use basic logging for now

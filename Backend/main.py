@@ -59,6 +59,57 @@ except ImportError as e:
     family_router = None
     FAMILY_AVAILABLE = False
 
+# Import Dashboard router
+try:
+    from app.api.dashboard_routes import router as dashboard_router
+    DASHBOARD_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Dashboard router not available: {e}")
+    dashboard_router = None
+    DASHBOARD_AVAILABLE = False
+
+# Import Vitals router
+try:
+    from app.api.vitals_routes import router as vitals_router
+    VITALS_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Vitals router not available: {e}")
+    vitals_router = None
+    VITALS_AVAILABLE = False
+
+# Import Labs router
+try:
+    from app.api.lab_routes import router as labs_router
+    LABS_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Labs router not available: {e}")
+    labs_router = None
+    LABS_AVAILABLE = False
+
+# Import FHIR router
+try:
+    from app.api.fhir_routes import router as fhir_router
+    FHIR_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"FHIR router not available: {e}")
+    fhir_router = None
+    FHIR_AVAILABLE = False
+
+# Import Data Export router
+try:
+    from app.api.data_export_routes import router as data_export_router
+    DATA_EXPORT_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Data export router not available: {e}")
+    data_export_router = None
+    DATA_EXPORT_AVAILABLE = False
+
+
 # Import RAG chatbot components
 try:
     from ollama_rag.rag_chatbot import get_chatbot
@@ -352,6 +403,51 @@ if FAMILY_AVAILABLE and family_router:
     logger.info("✅ Family router loaded")
 else:
     logger.warning("⚠️ Family router not available")
+
+
+# ==========================================
+# DASHBOARD ROUTER
+# ==========================================
+
+# Include dashboard endpoints under /api/v1/dashboard
+if DASHBOARD_AVAILABLE and dashboard_router:
+    app.include_router(dashboard_router)
+    logger.info("✅ Dashboard router loaded")
+else:
+    logger.warning("⚠️ Dashboard router not available")
+
+
+# ==========================================
+# VITALS ROUTER
+# ==========================================
+
+# Include vitals endpoints under /api/v1/vitals
+if VITALS_AVAILABLE and vitals_router:
+    app.include_router(vitals_router)
+    logger.info("✅ Vitals router loaded")
+else:
+    logger.warning("⚠️ Vitals router not available")
+
+# Include labs endpoints under /api/v1/labs
+if LABS_AVAILABLE and labs_router:
+    app.include_router(labs_router)
+    logger.info("✅ Labs router loaded")
+else:
+    logger.warning("⚠️ Labs router not available")
+
+# Include FHIR endpoints under /api/v1/fhir
+if FHIR_AVAILABLE and fhir_router:
+    app.include_router(fhir_router)
+    logger.info("✅ FHIR router loaded")
+else:
+    logger.warning("⚠️ FHIR router not available")
+
+# Include data export endpoints under /api/v1/data
+if DATA_EXPORT_AVAILABLE and data_export_router:
+    app.include_router(data_export_router)
+    logger.info("✅ Data export router loaded")
+else:
+    logger.warning("⚠️ Data export router not available")
 
 
 # ==========================================
@@ -664,6 +760,14 @@ async def root():
             "document_processing": {
                 "upload": "/api/v1/documents/upload",
                 "search": "/api/v1/documents/search"
+            },
+            "dashboard": {
+                "family_overview": "/api/v1/dashboard/family/{family_id}",
+                "member_detail": "/api/v1/dashboard/member/{user_id}",
+                "create_event": "/api/v1/dashboard/events",
+                "timeline": "/api/v1/dashboard/timeline/{user_id}",
+                "risk_scores": "/api/v1/dashboard/risk/{user_id}",
+                "condition_heatmap": "/api/v1/dashboard/family/{family_id}/conditions"
             }
         }
     }

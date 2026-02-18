@@ -85,13 +85,13 @@ class AuthMiddleware:
 
     @staticmethod
     async def get_current_active_user(
-        current_user: dict = Depends(get_current_user)
+        credentials: HTTPAuthorizationCredentials = Depends(security)
     ) -> dict:
         """
         Get current active user.
 
         Args:
-            current_user: Current user from token
+            credentials: HTTP Bearer credentials
 
         Returns:
             User data dictionary
@@ -99,6 +99,7 @@ class AuthMiddleware:
         Raises:
             HTTPException: If user is inactive
         """
+        current_user = await AuthMiddleware.get_current_user(credentials)
         if not current_user.get("is_active"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -109,13 +110,13 @@ class AuthMiddleware:
 
     @staticmethod
     async def get_current_verified_user(
-        current_user: dict = Depends(get_current_active_user)
+        credentials: HTTPAuthorizationCredentials = Depends(security)
     ) -> dict:
         """
         Get current verified user.
 
         Args:
-            current_user: Current active user
+            credentials: Current active user
 
         Returns:
             User data dictionary
@@ -123,6 +124,7 @@ class AuthMiddleware:
         Raises:
             HTTPException: If user is not verified
         """
+        current_user = await AuthMiddleware.get_current_active_user(credentials)
         if not current_user.get("is_verified"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -133,7 +135,7 @@ class AuthMiddleware:
 
     @staticmethod
     async def get_current_superuser(
-        current_user: dict = Depends(get_current_active_user)
+        credentials: HTTPAuthorizationCredentials = Depends(security)
     ) -> dict:
         """
         Get current superuser.
@@ -147,6 +149,7 @@ class AuthMiddleware:
         Raises:
             HTTPException: If user is not a superuser
         """
+        current_user = await AuthMiddleware.get_current_active_user(credentials)
         if not current_user.get("is_superuser"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

@@ -365,4 +365,41 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_user_id ON login_attempts(user_id)
 CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts(email);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_attempted_at ON login_attempts(attempted_at);
 
+-- Health Events Table (Family Health Dashboard)
+CREATE TABLE IF NOT EXISTS health_events (
+    event_id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    event_type VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    event_date TIMESTAMPTZ NOT NULL,
+    provider_name VARCHAR(255),
+    location VARCHAR(255),
+    event_data JSONB,
+    severity VARCHAR(20),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create indexes on health_events
+CREATE INDEX IF NOT EXISTS idx_health_events_user_id ON health_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_health_events_event_type ON health_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_health_events_event_date ON health_events(event_date DESC);
+CREATE INDEX IF NOT EXISTS idx_health_events_user_date ON health_events(user_id, event_date DESC);
+CREATE INDEX IF NOT EXISTS idx_health_events_user_type ON health_events(user_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_health_events_data ON health_events USING GIN (event_data);
+
+ALTER TABLE health_events ADD CONSTRAINT chk_event_type
+    CHECK (event_type IN ('visit', 'vital_reading', 'medication_change', 'lab_result', 'vaccination', 'condition_diagnosed'));
+
+ALTER TABLE health_events ADD CONSTRAINT chk_severity
+    CHECK (severity IS NULL OR severity IN ('normal', 'warning', 'critical'));
+
+-- Create trigger to automatically update updated_at on health_events
+DROP TRIGGER IF EXISTS update_health_events_updated_at ON health_events;
+CREATE TRIGGER update_health_events_updated_at
+    BEFORE UPDATE ON health_events
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- Conversations Table (Unified conversation storage)

@@ -348,6 +348,65 @@ def add_medication_reminder(
 
 
 # ==========================================
+# VITALS & HEALTH DASHBOARD
+# ==========================================
+
+def record_vital(vital_type: str, value: float, unit: str, date: str, time: Optional[str] = None, notes: Optional[str] = None) -> Dict:
+    """Record a vital sign measurement."""
+    payload = {"vital_type": vital_type, "value": value, "unit": unit, "date": date}
+    if time:
+        payload["time"] = time
+    if notes:
+        payload["notes"] = notes
+    return authenticated_request("post", f"{API_BASE_URL}/api/v1/vitals/record", json=payload)
+
+
+def record_blood_pressure(systolic: float, diastolic: float, date: str, heart_rate: Optional[float] = None, time: Optional[str] = None) -> Dict:
+    """Record blood pressure (systolic + diastolic + optional HR)."""
+    payload = {"systolic": systolic, "diastolic": diastolic, "date": date}
+    if heart_rate:
+        payload["heart_rate"] = heart_rate
+    if time:
+        payload["time"] = time
+    return authenticated_request("post", f"{API_BASE_URL}/api/v1/vitals/blood-pressure", json=payload)
+
+
+def get_vitals_trend(user_id: str, vital_type: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict:
+    """Get chart-ready trend data for a vital type."""
+    params = {"vital_type": vital_type}
+    if start_date:
+        params["start_date"] = start_date
+    if end_date:
+        params["end_date"] = end_date
+    return authenticated_request("get", f"{API_BASE_URL}/api/v1/vitals/trends/{user_id}", params=params)
+
+
+def get_latest_vitals(user_id: str) -> Dict:
+    """Get latest reading for each vital type."""
+    return authenticated_request("get", f"{API_BASE_URL}/api/v1/vitals/latest/{user_id}")
+
+
+def detect_anomalies(user_id: str) -> Dict:
+    """Get anomaly alerts for out-of-range vitals."""
+    return authenticated_request("get", f"{API_BASE_URL}/api/v1/vitals/anomalies/{user_id}")
+
+
+def get_risk_scores(user_id: str) -> Dict:
+    """Get health risk scores (cardiovascular, diabetes, etc)."""
+    return authenticated_request("get", f"{API_BASE_URL}/api/v1/vitals/risk-scores/{user_id}")
+
+
+def get_family_timeline(family_id: str, limit: int = 50) -> Dict:
+    """Get unified family health timeline."""
+    return authenticated_request("get", f"{API_BASE_URL}/api/v1/vitals/family-timeline/{family_id}", params={"limit": limit})
+
+
+def get_dashboard_summary(user_id: str) -> Dict:
+    """Get aggregated dashboard summary."""
+    return authenticated_request("get", f"{API_BASE_URL}/api/v1/vitals/dashboard/{user_id}")
+
+
+# ==========================================
 # HEALTH CHECK
 # ==========================================
 
@@ -384,3 +443,4 @@ def health_check() -> Dict:
         return response.json()
     except Exception as e:
         return {"status": "error", "error": str(e)}
+

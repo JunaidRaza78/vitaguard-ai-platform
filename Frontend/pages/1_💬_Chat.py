@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from components.auth import init_session_state, is_authenticated
-from components.api_client import send_message, logout
+from components.api_client import send_message, authenticated_request, API_BASE_URL, logout
 
 # Initialize
 init_session_state()
@@ -138,6 +138,21 @@ if prompt := st.chat_input("Ask a medical question..."):
     with st.chat_message("user"):
         st.markdown(prompt)
     
+    # ---- EMERGENCY DETECTION ----
+    try:
+        emg = authenticated_request("post", f"{API_BASE_URL}/api/v1/labs/emergency-check", json={"message": prompt})
+        if emg.get("is_emergency"):
+            severity = emg.get("severity", "urgent")
+            emg_response = emg.get("response", "")
+            if emg.get("call_911"):
+                st.error("🚨 **EMERGENCY DETECTED — CALL 911 IMMEDIATELY**")
+            else:
+                st.warning(f"🔴 Urgent medical concern detected.")
+            with st.expander("🚨 Emergency Guidance", expanded=True):
+                st.markdown(emg_response)
+    except Exception:
+        pass  # Non-blocking — don't prevent chat on failure
+
     # Get AI response
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):

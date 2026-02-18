@@ -13,7 +13,9 @@ class NotificationType(str, Enum):
     """Types of notifications"""
     MEDICATION_REMINDER = "medication_reminder"
     APPOINTMENT_REMINDER = "appointment_reminder"
+    VACCINATION_REMINDER = "vaccination_reminder"
     HEALTH_ALERT = "health_alert"
+    PROACTIVE_ALERT = "proactive_alert"
     SYSTEM = "system"
 
 

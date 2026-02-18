@@ -57,6 +57,7 @@ class User(Base):
     api_rate_limits = relationship("ApiRateLimit", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     login_attempts = relationship("LoginAttempt", back_populates="user", cascade="all, delete-orphan")
+    health_events = relationship("HealthEvent", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<User(id={self.user_id}, email={self.email})>"
@@ -555,3 +556,32 @@ class ChatMessage(Base):
 
     def __repr__(self) -> str:
         return f"<ChatMessage(id={self.message_id}, role={self.role})>"
+
+
+class HealthEvent(Base):
+    """Health events table for tracking visits, vitals, medication changes, and other health events."""
+    __tablename__ = "health_events"
+
+    event_id = Column(String(255), primary_key=True, nullable=False, default=lambda: str(uuid.uuid4()))
+    user_id = Column(
+        String(255),
+        ForeignKey('users.user_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+    event_type = Column(String(50), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    description = Column(String, nullable=True)
+    event_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    provider_name = Column(String(255), nullable=True)
+    location = Column(String(255), nullable=True)
+    event_data = Column(JSONB, nullable=True)
+    severity = Column(String(20), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationship to User
+    user = relationship("User", back_populates="health_events")
+
+    def __repr__(self) -> str:
+        return f"<HealthEvent(id={self.event_id}, type={self.event_type}, user={self.user_id})>"

@@ -40,7 +40,7 @@ Always advise consulting a licensed healthcare professional.
 @dataclass
 class OllamaConfig:
     base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-    model: str = "deepseek-r1:8b"
+    model: str = os.getenv("OLLAMA_MODEL", "deepseek-r1:8b")
 
     timeout: httpx.Timeout = field(default_factory=lambda: httpx.Timeout(
         connect=5.0,
@@ -235,6 +235,32 @@ class OllamaClient:
     # -------------------------------------------------------------------
     # Health / Cleanup
     # -------------------------------------------------------------------
+    def ensure_model(self):
+        """Pull the configured model if it is not yet available locally."""
+        try:
+            resp = self.client.get(f"{self.config.base_url}/api/tags")
+            if resp.status_code == 200:
+                models = [m.get("name", "") for m in resp.json().get("models", [])]
+                # Check exact name and also base name (e.g. "deepseek-r1:8b" matches "deepseek-r1:8b")
+                if any(self.config.model in m for m in models):
+                    logger.info(f"Model '{self.config.model}' already available")
+                    return
+
+            logger.info(f"Pulling model '{self.config.model}' — this may take a while on first run...")
+            # Use a long timeout for the pull (models can be several GB)
+            pull_client = httpx.Client(timeout=httpx.Timeout(connect=10.0, read=1800.0, write=30.0, pool=10.0))
+            try:
+                pull_resp = pull_client.post(
+                    f"{self.config.base_url}/api/pull",
+                    json={"name": self.config.model, "stream": False},
+                )
+                pull_resp.raise_for_status()
+                logger.info(f"Model '{self.config.model}' pulled successfully")
+            finally:
+                pull_client.close()
+        except Exception as e:
+            logger.warning(f"Could not ensure model availability: {e}")
+
     def health_check(self) -> bool:
         try:
             return self.client.get(f"{self.config.base_url}/api/tags").status_code == 200
@@ -259,4 +285,5 @@ def get_ollama_client() -> OllamaClient:
     global _ollama_client
     if _ollama_client is None:
         _ollama_client = OllamaClient()
+        _ollama_client.ensure_model()
     return _ollama_client
