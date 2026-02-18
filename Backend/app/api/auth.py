@@ -73,6 +73,21 @@ async def register(
             ip_address=ip_address
         )
 
+        # Sync user to Neo4j graph database
+        try:
+            from shared.database.neo4j.operations.graph_ops import GraphOperations
+            from datetime import datetime, timezone
+            graph_ops = GraphOperations()
+            graph_ops.create_node("User", {
+                "userId": user.user_id,
+                "email": user.email,
+                "name": f"{user_data.first_name or ''} {user_data.last_name or ''}".strip() or user.username,
+                "createdAt": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info(f"User synced to Neo4j: {user.user_id}")
+        except Exception as neo4j_err:
+            logger.warning(f"Failed to sync user to Neo4j (non-critical): {neo4j_err}")
+
         # TODO: Send verification email with token
         # await email_service.send_verification_email(user.email, verification_token)
 
@@ -458,24 +473,63 @@ async def forgot_password(password_reset: PasswordReset):
     Always returns success to prevent email enumeration.
     """
     try:
-        # Get user
-        user = await postgres_client.fetchrow(
-            "SELECT user_id, email FROM users WHERE email = $1",
-            password_reset.email
-        )
+        import smtplib
+        from email.mime.text import MIMEText
+        from pathlib import Path
+        from dotenv import dotenv_values
+        from shared.database.postgres.postgres_client import PostgresClient
+        from app.auth.jwt import jwt_service
 
-        if user:
+        # Get user from PostgreSQL — read attributes inside session context
+        user_id_val = None
+        user_email_val = None
+        with PostgresClient() as db:
+            user_obj = db.get_user_by_email(password_reset.email)
+            if user_obj:
+                user_id_val = str(user_obj.user_id)
+                user_email_val = str(user_obj.email)
+
+        if user_id_val and user_email_val:
             # Generate reset token
-            from app.auth.jwt import jwt_service
             reset_token = jwt_service.create_password_reset_token(
-                user["user_id"],
-                user["email"]
+                user_id_val,
+                user_email_val
             )
 
-            # TODO: Send reset email
-            # await email_service.send_password_reset_email(user["email"], reset_token)
+            # Send reset email via SMTP
+            try:
+                env_path = Path(__file__).parent.parent / "auth_export" / "keys" / ".env"
+                smtp_cfg = dotenv_values(env_path)
+                smtp_user = smtp_cfg.get("SMTP_USERNAME", "")
+                smtp_pass = smtp_cfg.get("SMTP_PASSWORD", "")
 
-            logger.info(f"Password reset requested for: {user['email']}")
+                if smtp_user and smtp_pass:
+                    reset_body = f"""
+                    <html><body>
+                    <h2>Password Reset Request</h2>
+                    <p>You requested a password reset for your Family Health Manager account.</p>
+                    <p>Use the token below to reset your password:</p>
+                    <p style="background:#f0f0f0;padding:12px;font-family:monospace;word-break:break-all;">
+                        {reset_token}
+                    </p>
+                    <p>Enter this token in the "Reset Password" section on the login page.</p>
+                    <p>This token expires in 1 hour. If you did not request this, ignore this email.</p>
+                    </body></html>
+                    """
+                    msg = MIMEText(reset_body, 'html')
+                    msg['Subject'] = "Family Health Manager - Password Reset"
+                    msg['From'] = smtp_user
+                    msg['To'] = user_email_val
+                    with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10) as smtp:
+                        smtp.login(smtp_user, smtp_pass)
+                        smtp.sendmail(smtp_user, user_email_val, msg.as_string())
+                    logger.info(f"Reset email sent to: {user_email_val}")
+                else:
+                    logger.warning("SMTP credentials not found, cannot send reset email")
+            except Exception as email_err:
+                logger.warning(f"Failed to send reset email: {email_err}")
+
+            logger.info(f"Password reset requested for: {user_email_val}")
 
         # Always return success (prevent email enumeration)
         return MessageResponse(
@@ -509,6 +563,7 @@ async def reset_password(reset_data: PasswordResetConfirm):
     try:
         from app.auth.jwt import jwt_service
         from app.auth.password import password_service
+        from shared.database.postgres.postgres_client import PostgresClient
         from datetime import datetime
 
         # Verify reset token
@@ -525,27 +580,28 @@ async def reset_password(reset_data: PasswordResetConfirm):
         # Hash new password
         new_password_hash = password_service.hash_password(reset_data.new_password)
 
-        # Update password
-        await postgres_client.execute(
-            """
-            UPDATE users
-            SET password_hash = $1,
-                password_changed_at = $2,
-                failed_login_attempts = 0,
-                account_locked_until = NULL
-            WHERE user_id = $3
-            """,
-            new_password_hash,
-            datetime.utcnow(),
-            user_id
-        )
+        now = datetime.utcnow()
 
-        # Revoke all refresh tokens
-        await postgres_client.execute(
-            "UPDATE refresh_tokens SET revoked = TRUE, revoked_at = $1 WHERE user_id = $2",
-            datetime.utcnow(),
-            user_id
-        )
+        from sqlalchemy import text as sa_text
+        with PostgresClient() as db:
+            session = db.get_session()
+            # Update password and reset lockout
+            session.execute(
+                sa_text("""
+                UPDATE users
+                SET password_hash = :pw_hash,
+                    password_changed_at = :now,
+                    failed_login_attempts = 0,
+                    account_locked_until = NULL
+                WHERE user_id = :user_id
+                """),
+                {"pw_hash": new_password_hash, "now": now, "user_id": user_id}
+            )
+            # Revoke all refresh tokens
+            session.execute(
+                sa_text("UPDATE refresh_tokens SET revoked = TRUE, revoked_at = :now WHERE user_id = :user_id"),
+                {"now": now, "user_id": user_id}
+            )
 
         logger.info(f"Password reset completed for user: {user_id}")
 

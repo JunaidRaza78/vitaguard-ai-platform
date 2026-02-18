@@ -144,36 +144,69 @@ class FamilyOperations(GraphOperations):
         familyId: str,
         role: Optional[str] = None,
         joinedAt: Optional[str] = None,
+        name: Optional[str] = None,
+        email: Optional[str] = None,
         database: Optional[str] = None
     ) -> bool:
         """
         Add a user to a family (create MEMBER_OF relationship).
+        Uses MERGE so the User node is created in Neo4j if it doesn't exist yet.
 
         Args:
             userId: User ID
             familyId: Family ID
             role: User role in family (admin/member, optional)
             joinedAt: Join date (ISO format, optional, defaults to now)
+            name: User full name (optional, stored on User node)
+            email: User email (optional, stored on User node)
             database: Database name (optional)
 
         Returns:
             True if relationship created, False otherwise
         """
         try:
-            properties = {
-                "joinedAt": joinedAt or datetime.now(timezone.utc).isoformat()
+            joined = joinedAt or datetime.now(timezone.utc).isoformat()
+            params: Dict[str, Any] = {
+                "userId": userId,
+                "familyId": familyId,
+                "joined": joined,
             }
-            if role:
-                properties["role"] = role
 
-            logger.info(f"Adding user {userId} to family {familyId}")
-            return self.create_relationship(
-                "User", "userId", userId,
-                "MEMBER_OF",
-                "Family", "familyId", familyId,
-                properties,
-                database
-            )
+            # Build SET clause for user node properties
+            user_set_parts = []
+            if name:
+                user_set_parts.append("u.name = $name")
+                params["name"] = name
+            if email:
+                user_set_parts.append("u.email = $email")
+                params["email"] = email
+            user_set_clause = ("SET " + ", ".join(user_set_parts)) if user_set_parts else ""
+
+            # Build SET clause for relationship properties
+            rel_set_parts = ["r.joinedAt = $joined"]
+            if role:
+                rel_set_parts.append("r.role = $role")
+                params["role"] = role
+            rel_set_clause = "SET " + ", ".join(rel_set_parts)
+
+            query = f"""
+            MERGE (u:User {{userId: $userId}})
+            {user_set_clause}
+            WITH u
+            MATCH (f:Family {{familyId: $familyId}})
+            MERGE (u)-[r:MEMBER_OF]->(f)
+            {rel_set_clause}
+            RETURN r
+            """
+
+            logger.info(f"Adding user {userId} to family {familyId} with role={role}")
+            records = self.execute_query(query, params, database)
+            success = len(records) > 0
+            if success:
+                logger.info(f"User {userId} added to family {familyId} successfully")
+            else:
+                logger.warning(f"Failed to add user {userId} to family {familyId} — family may not exist")
+            return success
         except Exception as e:
             logger.error(f"Failed to add user to family: {str(e)}")
             raise

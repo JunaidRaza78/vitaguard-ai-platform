@@ -1,38 +1,39 @@
-# Environment variables
+# =========================
+# Environment Variables
+# =========================
 .env
 .env.local
 .env.*.local
 
-# Python
+# =========================
+# Python Cache & Build
+# =========================
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyc
+*.pyo
+*.pyd
 *.so
 .Python
+
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
 wheels/
 *.egg-info/
-.installed.cfg
+.eggs/
 *.egg
+.installed.cfg
 
-# Virtual environments
+# =========================
+# Virtual Environments
+# =========================
 venv/
 env/
 ENV/
-.venv
 .venv/
 
-# IDE
+# =========================
+# IDE / Editor
+# =========================
 .vscode/
 .idea/
 .claude/
@@ -40,9 +41,28 @@ ENV/
 *.swo
 *~
 
-# OS
+# =========================
+# OS Files
+# =========================
 .DS_Store
 Thumbs.db
 
+# =========================
 # Logs
-logs/*.log
+# =========================
+logs/
+Backend/logs/
+*.log
+
+# =========================
+# Node / Frontend (if any)
+# =========================
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# =========================
+# Others
+# =========================
+.cache/
+.temp/

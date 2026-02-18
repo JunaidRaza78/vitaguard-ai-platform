@@ -49,6 +49,16 @@ except ImportError as e:
     google_auth_router = None
     GOOGLE_AUTH_AVAILABLE = False
 
+# Import Family router
+try:
+    from app.api.family_routes import router as family_router
+    FAMILY_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Family router not available: {e}")
+    family_router = None
+    FAMILY_AVAILABLE = False
+
 # Import RAG chatbot components
 try:
     from ollama_rag.rag_chatbot import get_chatbot
@@ -145,6 +155,21 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"⚠️  Ollama client initialization failed: {e}")
 
+    # Start Notification Scheduler
+    notification_scheduler_instance = None
+    try:
+        from app.services.notification_scheduler import notification_scheduler
+        if notification_scheduler.start():
+            notification_scheduler_instance = notification_scheduler
+            logger.info("✅ Notification scheduler started (medication reminders + pending processor)")
+        else:
+            logger.warning("⚠️  Notification scheduler failed to start, using simple processor")
+            from app.services.notification_scheduler import simple_processor
+            await simple_processor.start(check_interval_seconds=60)
+            logger.info("✅ Simple notification processor started (60s interval)")
+    except Exception as e:
+        logger.warning(f"⚠️  Notification scheduler not available: {e}")
+
     logger.info("🎉 All services initialized successfully")
     logger.info("=" * 60)
 
@@ -154,6 +179,19 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     logger.info("🛑 Shutting down Family Health Manager API")
     logger.info("=" * 60)
+
+    # Stop notification scheduler
+    try:
+        if notification_scheduler_instance:
+            notification_scheduler_instance.stop()
+            logger.info("✅ Notification scheduler stopped")
+        else:
+            from app.services.notification_scheduler import simple_processor
+            await simple_processor.stop()
+            logger.info("✅ Simple notification processor stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping notification scheduler: {e}")
+
     logger.info("✅ Shutdown complete")
 
 
@@ -302,6 +340,18 @@ if GOOGLE_AUTH_AVAILABLE and google_auth_router:
     logger.info("✅ Google Auth router loaded")
 else:
     logger.warning("⚠️ Google Auth router not available")
+
+
+# ==========================================
+# FAMILY ROUTER
+# ==========================================
+
+# Include family endpoints under /api/v1/families
+if FAMILY_AVAILABLE and family_router:
+    app.include_router(family_router)
+    logger.info("✅ Family router loaded")
+else:
+    logger.warning("⚠️ Family router not available")
 
 
 # ==========================================
@@ -691,6 +741,13 @@ async def health_check():
         health_status["services"]["google_oauth"] = "available"
     else:
         health_status["services"]["google_oauth"] = "unavailable"
+
+    # Check Notification Scheduler
+    try:
+        from app.services.notification_scheduler import notification_scheduler
+        health_status["services"]["notification_scheduler"] = "running" if notification_scheduler.is_running() else "stopped"
+    except Exception:
+        health_status["services"]["notification_scheduler"] = "unavailable"
 
     # Return appropriate status code
     if health_status["status"] == "degraded":

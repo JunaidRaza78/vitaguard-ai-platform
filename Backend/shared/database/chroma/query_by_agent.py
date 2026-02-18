@@ -1,6 +1,5 @@
 import chromadb
 import logging
-from sentence_transformers import SentenceTransformer
 from whoosh.index import create_in, open_dir
 from whoosh.fields import Schema, TEXT, ID
 from whoosh.qparser import QueryParser
@@ -14,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------
-# 🔒 SINGLE SOURCE OF TRUTH (ABSOLUTE PATH)
+# SINGLE SOURCE OF TRUTH (ABSOLUTE PATH)
 # -------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parents[3]  # Backend/
 CHROMA_DATA_PATH = BASE_DIR / "shared" / "database" / "chroma" / "chroma_data"
@@ -23,20 +22,33 @@ BM25_INDEX_PATH = BASE_DIR / "shared" / "database" / "chroma" / "bm25_index"
 logger.info(f"Using ChromaDB path: {CHROMA_DATA_PATH}")
 
 # -------------------------------------------------
-# INIT MODELS
+# LAZY INIT (avoid module-level model download)
 # -------------------------------------------------
-model = SentenceTransformer("all-MiniLM-L6-v2")
+_model = None
+_client = None
+_collection = None
 
-client = chromadb.PersistentClient(path=str(CHROMA_DATA_PATH))
 
-# 🔒 SAFE COLLECTION LOAD (NO CRASH)
-try:
-    collection = client.get_collection("medical_docs")
-except Exception:
-    logger.warning("Collection 'medical_docs' not found. Creating empty collection.")
-    collection = client.get_or_create_collection("medical_docs")
+def _get_model():
+    global _model
+    if _model is None:
+        from sentence_transformers import SentenceTransformer
+        logger.info("Loading SentenceTransformer model...")
+        _model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _model
 
-logger.info(f"Chroma collection size: {collection.count()}")
+
+def _get_collection():
+    global _client, _collection
+    if _collection is None:
+        _client = chromadb.PersistentClient(path=str(CHROMA_DATA_PATH))
+        try:
+            _collection = _client.get_collection("medical_docs")
+        except Exception:
+            logger.warning("Collection 'medical_docs' not found. Creating empty collection.")
+            _collection = _client.get_or_create_collection("medical_docs")
+    return _collection
+
 
 # -------------------------------------------------
 # BM25 SCHEMA
@@ -60,6 +72,7 @@ def build_bm25_index():
 
     writer = ix.writer()
 
+    collection = _get_collection()
     docs = collection.get(include=["documents", "metadatas"])
 
     for doc_id, text, meta in zip(
@@ -79,6 +92,8 @@ def build_bm25_index():
 # SEMANTIC SEARCH
 # -------------------------------------------------
 def query_agent(query_text, agent_specialty=None, n_results=5):
+    model = _get_model()
+    collection = _get_collection()
     embedding = model.encode(query_text).tolist()
 
     where = {"specialty": agent_specialty} if agent_specialty else None

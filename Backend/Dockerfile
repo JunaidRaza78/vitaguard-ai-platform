@@ -68,6 +68,11 @@ COPY . /app/
 RUN mkdir -p /app/logs /app/uploads /app/dataset /home/appuser/.cache/huggingface && \
     chown -R appuser:appuser /app /home/appuser
 
+# Pre-download SentenceTransformer model during build (so no network needed at runtime)
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')" && \
+    cp -r /root/.cache/huggingface /home/appuser/.cache/huggingface && \
+    chown -R appuser:appuser /home/appuser/.cache
+
 # Switch to non-root user
 USER appuser
 

@@ -28,8 +28,12 @@ class AppLogger:
     def _setup_handlers(self):
         """Setup console and file handlers with formatters."""
 
-        # Create logs directory
-        log_dir = Path(__file__).parent.parent.parent.parent / "logs"
+        # Create logs directory - use /app/logs in Docker, relative otherwise
+        import os
+        if os.path.exists("/app"):
+            log_dir = Path("/app/logs")
+        else:
+            log_dir = Path(__file__).resolve().parents[2] / "logs"
         log_dir.mkdir(exist_ok=True)
 
         # Console Handler - INFO and above

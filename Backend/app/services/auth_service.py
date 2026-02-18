@@ -4,7 +4,7 @@ Handles user registration, login, and authentication business logic
 Uses SQLAlchemy ORM for database operations
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 from uuid import uuid4
 import logging
@@ -62,7 +62,7 @@ class AuthenticationService:
 
             # Create user
             user_id = str(uuid4())
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
 
             user = User(
                 user_id=user_id,
@@ -166,8 +166,8 @@ class AuthenticationService:
                 raise ValueError("Invalid email or password")
 
             # Check if account is locked
-            if user.account_locked_until and user.account_locked_until > datetime.utcnow():
-                remaining = (user.account_locked_until - datetime.utcnow()).seconds // 60
+            if user.account_locked_until and user.account_locked_until > datetime.now(timezone.utc):
+                remaining = (user.account_locked_until - datetime.now(timezone.utc)).seconds // 60
                 raise ValueError(f"Account is locked. Try again in {remaining} minutes.")
 
             # Check if account is active
@@ -181,7 +181,7 @@ class AuthenticationService:
 
                 if user.failed_login_attempts >= self.MAX_LOGIN_ATTEMPTS:
                     # Lock account
-                    user.account_locked_until = datetime.utcnow() + timedelta(minutes=self.ACCOUNT_LOCKOUT_MINUTES)
+                    user.account_locked_until = datetime.now(timezone.utc) + timedelta(minutes=self.ACCOUNT_LOCKOUT_MINUTES)
                     session.commit()
 
                     await self._record_login_attempt(
@@ -214,7 +214,7 @@ class AuthenticationService:
             # Reset failed attempts on successful login
             user.failed_login_attempts = 0
             user.account_locked_until = None
-            user.last_login = datetime.utcnow()
+            user.last_login = datetime.now(timezone.utc)
             session.commit()
 
             # Record successful login
@@ -240,7 +240,7 @@ class AuthenticationService:
             )
 
             # Store refresh token in database
-            expires_at = datetime.utcnow() + timedelta(days=30 if not login_data.remember_me else 90)
+            expires_at = datetime.now(timezone.utc) + timedelta(days=30 if not login_data.remember_me else 90)
 
             refresh_token_record = RefreshToken(
                 token_id=str(uuid4()),
@@ -257,7 +257,7 @@ class AuthenticationService:
                 session_id=str(uuid4()),
                 user_id=user.user_id,
                 token=access_token,
-                expires_at=datetime.utcnow() + timedelta(minutes=jwt_service.access_token_expire_minutes),
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=jwt_service.access_token_expire_minutes),
                 ip_address=ip_address,
                 user_agent=user_agent
             )
@@ -328,7 +328,7 @@ class AuthenticationService:
                 raise ValueError("Refresh token not found or has been revoked")
 
             # Check if token has expired
-            if token_record.expires_at < datetime.utcnow():
+            if token_record.expires_at < datetime.now(timezone.utc):
                 raise ValueError("Refresh token has expired")
 
             # Get user
@@ -350,14 +350,14 @@ class AuthenticationService:
 
             # Revoke old refresh token
             token_record.revoked = True
-            token_record.revoked_at = datetime.utcnow()
+            token_record.revoked_at = datetime.now(timezone.utc)
 
             # Store new refresh token
             new_token_record = RefreshToken(
                 token_id=str(uuid4()),
                 user_id=user.user_id,
                 token=new_refresh_token,
-                expires_at=datetime.utcnow() + timedelta(days=30),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=30),
                 ip_address=ip_address
             )
             session.add(new_token_record)
@@ -411,7 +411,7 @@ class AuthenticationService:
 
                 if token_record:
                     token_record.revoked = True
-                    token_record.revoked_at = datetime.utcnow()
+                    token_record.revoked_at = datetime.now(timezone.utc)
 
             # Deactivate sessions - UserSession doesn't have is_active, so we delete
             session.query(UserSession).filter(UserSession.user_id == user_id).delete()
@@ -492,7 +492,7 @@ class AuthenticationService:
                     user_agent=user_agent,
                     success=success,
                     failure_reason=failure_reason,
-                    attempted_at=datetime.utcnow()
+                    attempted_at=datetime.now(timezone.utc)
                 )
                 session.add(attempt)
                 session.commit()
