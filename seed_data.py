@@ -319,7 +319,7 @@ def seed_lab_results(user_id):
 # ──────────────────────────────────────────────────
 
 def seed_notifications(user_id):
-    """Seed notifications directly in PostgreSQL."""
+    """Seed notifications directly in PostgreSQL with time-based reminders."""
     log("Seeding Notifications into PostgreSQL...", B)
 
     from shared.database.postgres.postgres_client import PostgresClient
@@ -327,32 +327,55 @@ def seed_notifications(user_id):
 
     db = PostgresClient()
     now = datetime.now(timezone.utc)
+    today = datetime.now(timezone.utc).date()
 
-    notifications = [
-        ("medication_reminder", "Time for Metformin",
-         "Take your Metformin 500mg morning dose. Take with food.", "medium"),
+    # Past notifications (already sent or pending from past)
+    past_notifications = [
         ("health_alert", "Blood Pressure Elevated",
-         "Your systolic BP reading of 158 mmHg is above normal (90-130). Consider resting and re-checking.", "high"),
-        ("appointment_reminder", "Annual Physical - Dr. Smith",
-         "Your annual physical is scheduled for next Monday at 10:00 AM. Remember to fast 12 hours before blood work.", "medium"),
+         "Your systolic BP reading of 158 mmHg is above normal (90-130). Consider resting and re-checking.", "high",
+         now - timedelta(hours=random.randint(12, 48))),
         ("health_alert", "Lab Results Available",
-         "Your recent bloodwork results are ready for review in the Lab Reports section.", "low"),
+         "Your recent bloodwork results are ready for review in the Lab Reports section.", "low",
+         now - timedelta(hours=random.randint(0, 24))),
         ("system", "Welcome to Family Health Manager!",
-         "Your account is set up. Start by recording your vitals and adding medications for personalized health insights.", "low"),
+         "Your account is set up. Start by recording your vitals and adding medications for personalized health insights.", "low",
+         now - timedelta(days=90)),
         ("vaccination_reminder", "Flu Vaccine - Annual Reminder",
-         "It's flu season! Schedule your annual influenza vaccine. Last vaccination was over 12 months ago.", "medium"),
+         "It's flu season! Schedule your annual influenza vaccine. Last vaccination was over 12 months ago.", "medium",
+         now - timedelta(days=30)),
         ("proactive_alert", "Glucose Trending Upward",
-         "Your fasting glucose has been trending upward (avg 115 to 128). Consider dietary adjustments.", "high"),
-        ("medication_reminder", "Time for Atorvastatin",
-         "Take your Atorvastatin 20mg bedtime dose.", "medium"),
+         "Your fasting glucose has been trending upward (avg 115 to 128). Consider dietary adjustments.", "high",
+         now - timedelta(hours=6)),
         ("health_alert", "Vitamin D Level Low",
-         "Your Vitamin D level is 28 ng/mL (below the normal range of 30-100). Consider supplementation.", "medium"),
+         "Your Vitamin D level is 28 ng/mL (below the normal range of 30-100). Consider supplementation.", "medium",
+         now - timedelta(hours=3)),
+    ]
+
+    # Future medication reminders (scheduled for specific times TODAY)
+    future_reminders = [
+        ("medication_reminder", "Time for Metformin",
+         "Take your Metformin 500mg morning dose. Take with food.", "high",
+         datetime(today.year, today.month, today.day, 8, 0, 0, tzinfo=timezone.utc)),
+        ("medication_reminder", "Time for Panadol",
+         "Take your Panadol 500mg tablet as prescribed.", "high",
+         datetime(today.year, today.month, today.day, 15, 0, 0, tzinfo=timezone.utc)),  # 3 PM
+        ("medication_reminder", "Time for Metformin (Evening)",
+         "Take your Metformin 500mg evening dose. Take with dinner.", "high",
+         datetime(today.year, today.month, today.day, 20, 0, 0, tzinfo=timezone.utc)),  # 8 PM
+        ("medication_reminder", "Time for Atorvastatin",
+         "Take your Atorvastatin 20mg bedtime dose.", "high",
+         datetime(today.year, today.month, today.day, 21, 0, 0, tzinfo=timezone.utc)),  # 9 PM
+        ("appointment_reminder", "Cardiology Appointment Tomorrow",
+         "Your cardiology follow-up is scheduled for tomorrow at 10:00 AM. Dr. Johnson at Heart Care Clinic.", "high",
+         datetime(today.year, today.month, today.day, 9, 0, 0, tzinfo=timezone.utc)),  # 9 AM reminder for tomorrow appointment
     ]
 
     count = 0
     with db:
         session = db.get_session()
-        for ntype, title, message, priority in notifications:
+
+        # Add past notifications
+        for ntype, title, message, priority, scheduled_at in past_notifications:
             try:
                 notif = Notification(
                     notification_id=str(uuid.uuid4()),
@@ -362,8 +385,8 @@ def seed_notifications(user_id):
                     message=message,
                     status="pending",
                     priority=priority,
-                    scheduled_at=now - timedelta(hours=random.randint(0, 48)),
-                    created_at=now - timedelta(hours=random.randint(0, 72)),
+                    scheduled_at=scheduled_at,
+                    created_at=scheduled_at - timedelta(hours=1),
                     notification_metadata={},
                     retry_count=0,
                 )
@@ -371,9 +394,37 @@ def seed_notifications(user_id):
                 count += 1
             except Exception as e:
                 warn(f"Notification '{title}': {e}")
+
+        # Add future reminders (scheduled for specific times today)
+        for ntype, title, message, priority, scheduled_at in future_reminders:
+            try:
+                # Only add if time hasn't passed yet
+                if scheduled_at > now:
+                    notif = Notification(
+                        notification_id=str(uuid.uuid4()),
+                        user_id=user_id,
+                        type=ntype,
+                        title=title,
+                        message=message,
+                        status="pending",
+                        priority=priority,
+                        scheduled_at=scheduled_at,
+                        created_at=now,
+                        notification_metadata={
+                            "medication_name": title.replace("Time for ", ""),
+                            "scheduled_time": scheduled_at.strftime("%H:%M"),
+                        },
+                        retry_count=0,
+                    )
+                    session.add(notif)
+                    count += 1
+                    ok(f"  {title} scheduled for {scheduled_at.strftime('%H:%M')}")
+            except Exception as e:
+                warn(f"Notification '{title}': {e}")
+
         session.commit()
 
-    ok(f"Seeded {count} notifications")
+    ok(f"Seeded {count} notifications (including timed reminders)")
 
 
 # ──────────────────────────────────────────────────
@@ -390,7 +441,8 @@ def seed_health_events(user_id):
     db = PostgresClient()
     now = datetime.now(timezone.utc)
 
-    events = [
+    # Past events
+    past_events = [
         ("visit", "Annual Physical Exam", "Routine annual check-up with Dr. Smith. All vitals normal.",
          now - timedelta(days=90), "Dr. Smith", "City Medical Center", "normal"),
         ("lab_result", "Comprehensive Metabolic Panel", "Blood work for pre-diabetes monitoring.",
@@ -405,10 +457,25 @@ def seed_health_events(user_id):
          now - timedelta(days=45), "Dr. Lee", "Vision Care Associates", "normal"),
     ]
 
+    # Future appointments (using 'visit' event type)
+    future_appointments = [
+        ("visit", "Cardiology Follow-up - Dr. Johnson",
+         "Follow-up appointment to review blood pressure medication effectiveness and recent vitals.",
+         now + timedelta(days=1, hours=10), "Dr. Johnson", "Heart Care Clinic", "normal"),  # Tomorrow at 10 AM
+        ("visit", "Diabetes Management Review",
+         "Quarterly diabetes management review. Bring recent glucose logs and questions about medication.",
+         now + timedelta(days=14, hours=9), "Dr. Smith", "City Medical Center", "warning"),  # 2 weeks from now
+        ("visit", "Lab Work - Fasting Blood Panel",
+         "Fasting blood work for A1C, lipid panel, and metabolic panel. Fast 12 hours before appointment.",
+         now + timedelta(days=7, hours=7), "Quest Diagnostics", "Quest Lab - Main St", "normal"),  # 1 week from now
+    ]
+
     count = 0
     with db:
         session = db.get_session()
-        for etype, title, desc, event_date, provider, location, severity in events:
+
+        # Add past events
+        for etype, title, desc, event_date, provider, location, severity in past_events:
             try:
                 event = HealthEvent(
                     event_id=str(uuid.uuid4()),
@@ -425,9 +492,30 @@ def seed_health_events(user_id):
                 count += 1
             except Exception as e:
                 warn(f"Event '{title}': {e}")
+
+        # Add future appointments
+        for etype, title, desc, event_date, provider, location, severity in future_appointments:
+            try:
+                event = HealthEvent(
+                    event_id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    event_type=etype,
+                    title=title,
+                    description=desc,
+                    event_date=event_date,
+                    provider_name=provider,
+                    location=location,
+                    severity=severity,
+                )
+                session.add(event)
+                count += 1
+                ok(f"  {title} on {event_date.strftime('%Y-%m-%d %H:%M')}")
+            except Exception as e:
+                warn(f"Event '{title}': {e}")
+
         session.commit()
 
-    ok(f"Seeded {count} health events")
+    ok(f"Seeded {count} health events (including {len(future_appointments)} upcoming appointments)")
 
 
 # ──────────────────────────────────────────────────
@@ -546,6 +634,70 @@ def seed_family(user_id):
 
 
 # ──────────────────────────────────────────────────
+# Step 8: Seed Audit Logs into PostgreSQL
+# ──────────────────────────────────────────────────
+
+def seed_audit_logs(user_id):
+    """Seed audit trail entries into PostgreSQL for compliance demo."""
+    log("Seeding Audit Logs into PostgreSQL...", B)
+
+    from shared.database.postgres.postgres_client import PostgresClient
+    import sqlalchemy
+
+    db = PostgresClient()
+    now = datetime.now(timezone.utc)
+
+    # Sample audit trail entries (using raw SQL to avoid ORM type casting issues)
+    audit_entries = [
+        ("VIEW_PROFILE", "User", user_id, "192.168.1.10", "Mozilla/5.0 (Macintosh)", 200,
+         '{"action": "viewed_own_profile"}', now - timedelta(hours=2)),
+        ("VIEW_LAB_RESULTS", "LabResult", "lab-report-001", "192.168.1.10", "Mozilla/5.0 (Macintosh)", 200,
+         '{"test_count": 24, "abnormal_count": 6}', now - timedelta(hours=5)),
+        ("RECORD_VITALS", "VitalSign", "vital-001", "192.168.1.10", "Mozilla/5.0 (Macintosh)", 201,
+         '{"vital_type": "blood_pressure", "value": "128/82"}', now - timedelta(hours=8)),
+        ("VIEW_FAMILY_HEALTH", "Family", "family-001", "192.168.1.10", "Mozilla/5.0 (Macintosh)", 200,
+         '{"member_count": 5}', now - timedelta(days=1)),
+        ("ADD_MEDICATION", "Medication", "med-001", "192.168.1.10", "Mozilla/5.0 (Macintosh)", 201,
+         '{"medication_name": "Metformin 500mg"}', now - timedelta(days=3)),
+        ("VIEW_NOTIFICATIONS", "Notification", user_id, "192.168.1.10", "Mozilla/5.0 (Macintosh)", 200,
+         '{"notification_count": 9}', now - timedelta(hours=1)),
+        ("LOGIN", "Auth", user_id, "192.168.1.10", "Mozilla/5.0 (Macintosh)", 200,
+         '{"method": "password"}', now - timedelta(hours=12)),
+        ("VIEW_DASHBOARD", "Dashboard", user_id, "192.168.1.10", "Mozilla/5.0 (Macintosh)", 200,
+         '{"kpi_cards": 4}', now - timedelta(minutes=30)),
+    ]
+
+    count = 0
+    with db:
+        session = db.get_session()
+        for action, res_type, res_id, ip, user_agent, status, details, created_at in audit_entries:
+            try:
+                # Use raw SQL to insert with proper INET casting
+                sql = sqlalchemy.text("""
+                    INSERT INTO audit_logs
+                    (user_id, action, resource_type, resource_id, ip_address, user_agent, response_status, details, created_at)
+                    VALUES (:user_id, :action, :resource_type, :resource_id, :ip_address::inet, :user_agent, :response_status, :details::jsonb, :created_at)
+                """)
+                session.execute(sql, {
+                    "user_id": user_id,
+                    "action": action,
+                    "resource_type": res_type,
+                    "resource_id": res_id,
+                    "ip_address": ip,
+                    "user_agent": user_agent,
+                    "response_status": status,
+                    "details": details,
+                    "created_at": created_at,
+                })
+                count += 1
+            except Exception as e:
+                warn(f"Audit log '{action}': {e}")
+        session.commit()
+
+    ok(f"Seeded {count} audit log entries")
+
+
+# ──────────────────────────────────────────────────
 # MAIN
 # ──────────────────────────────────────────────────
 
@@ -586,15 +738,26 @@ def main():
     seed_health_events(user_id)
     print()
     seed_family(user_id)
+    print()
+    seed_audit_logs(user_id)
 
     print(f"\n{G}{'═'*55}{N}")
     print(f"{G}  🎉 ALL SEED DATA INSERTED SUCCESSFULLY!{N}")
     print(f"{G}{'═'*55}{N}")
+    print(f"\n  Seeded data includes:")
+    print(f"  • User: {EMAIL} / {PASSWORD}")
+    print(f"  • 30 days of vitals + anomalies")
+    print(f"  • 5 medications with reminder times")
+    print(f"  • 24 lab results with trend data")
+    print(f"  • Timed medication reminders (8AM, 3PM, 8PM, 9PM)")
+    print(f"  • 3 upcoming appointments")
+    print(f"  • Family with 5 members + health conditions")
+    print(f"  • Audit trail entries")
     print(f"\n  Next steps:")
     print(f"  1. Start backend:   cd Backend && uvicorn main:app --reload")
-    print(f"  2. Start frontend:  cd Frontend && streamlit run app.py")
+    print(f"  2. Start frontend:  cd frontend-react && npm run dev")
     print(f"  3. Login with:      {EMAIL} / {PASSWORD}")
-    print(f"  4. Check pages:     Dashboard, Notifications, Lab Reports, Chat")
+    print(f"  4. Check:           Dashboard, Notifications (timed), Lab Reports (history)")
     print()
 
 

@@ -5,6 +5,22 @@ version: '3.9'
 
 services:
   # ==========================================
+  # REACT FRONTEND
+  # ==========================================
+  frontend:
+    build:
+      context: ./frontend-react
+      dockerfile: Dockerfile
+    container_name: health-manager-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - app
+    networks:
+      - health-manager-network
+    restart: unless-stopped
+
+  # ==========================================
   # APPLICATION
   # ==========================================
   app:
@@ -215,6 +231,8 @@ volumes:
   app-logs:
     driver: local
   ollama-data:
+    driver: local
+  frontend-node-modules:
     driver: local
 
 # ==========================================

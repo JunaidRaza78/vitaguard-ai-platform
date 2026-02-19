@@ -203,3 +203,81 @@ async def get_risk_scores(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to calculate risk scores",
         )
+
+
+# ==========================================
+# AUDIT TRAIL
+# ==========================================
+
+@router.get(
+    "/audit/trail",
+    summary="Get audit trail",
+    description="Get access audit trail for compliance (admin/user access)",
+)
+async def get_audit_trail(
+    current_user: dict = Depends(get_current_active_user),
+    user_id: Optional[str] = Query(None, description="Filter by user ID"),
+    action: Optional[str] = Query(None, description="Filter by action type"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    """Get audit trail entries for compliance tracking."""
+    from shared.database.postgres.postgres_client import PostgresClient
+    from shared.database.postgres.models import AuditLog
+
+    try:
+        db_client = PostgresClient()
+        with db_client as db:
+            session = db.get_session()
+
+            # Build query
+            query = session.query(AuditLog)
+
+            # Filter by user_id if provided (or current user if not admin)
+            if user_id:
+                query = query.filter(AuditLog.user_id == user_id)
+            else:
+                # Non-admin users can only see their own audit logs
+                if not current_user.get("is_superuser"):
+                    query = query.filter(AuditLog.user_id == current_user["user_id"])
+
+            # Filter by action type
+            if action:
+                query = query.filter(AuditLog.action.like(f"%{action}%"))
+
+            # Order by most recent first
+            query = query.order_by(AuditLog.created_at.desc())
+
+            # Paginate
+            total = query.count()
+            logs = query.offset(offset).limit(limit).all()
+
+            # Format response
+            results = []
+            for log in logs:
+                results.append({
+                    "log_id": log.log_id,
+                    "user_id": log.user_id,
+                    "action": log.action,
+                    "resource_type": log.resource_type,
+                    "resource_id": log.resource_id,
+                    "ip_address": log.ip_address,
+                    "user_agent": log.user_agent,
+                    "response_status": log.response_status,
+                    "details": log.details,
+                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                })
+
+            return {
+                "audit_logs": results,
+                "total": total,
+                "page": (offset // limit) + 1,
+                "page_size": limit,
+            }
+
+    except Exception as e:
+        logger.error(f"Error fetching audit trail: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch audit trail",
+        )

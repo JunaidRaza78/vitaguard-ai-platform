@@ -89,6 +89,16 @@ except ImportError as e:
     labs_router = None
     LABS_AVAILABLE = False
 
+# Import Chat router
+try:
+    from app.api.chat_routes import router as chat_router
+    CHAT_AVAILABLE = True
+except ImportError as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Chat router not available: {e}")
+    chat_router = None
+    CHAT_AVAILABLE = False
+
 # Import FHIR router
 try:
     from app.api.fhir_routes import router as fhir_router
@@ -434,6 +444,13 @@ if LABS_AVAILABLE and labs_router:
     logger.info("✅ Labs router loaded")
 else:
     logger.warning("⚠️ Labs router not available")
+
+# Include chat endpoints under /api/v1/chat
+if CHAT_AVAILABLE and chat_router:
+    app.include_router(chat_router)
+    logger.info("✅ Chat router loaded")
+else:
+    logger.warning("⚠️ Chat router not available")
 
 # Include FHIR endpoints under /api/v1/fhir
 if FHIR_AVAILABLE and fhir_router:

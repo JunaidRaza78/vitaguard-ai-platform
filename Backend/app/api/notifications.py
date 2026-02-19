@@ -105,6 +105,66 @@ async def get_my_medication_reminders(
         )
 
 
+@router.get(
+    "/me/upcoming",
+    response_model=NotificationListResponse,
+    summary="Get upcoming notifications",
+    description="Get future scheduled notifications for the current user, sorted by time"
+)
+async def get_upcoming_notifications(
+    current_user: dict = Depends(get_current_active_user),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """Get upcoming scheduled notifications for the authenticated user."""
+    from shared.database.postgres.postgres_client import PostgresClient
+    from shared.database.postgres.models import Notification
+    from datetime import datetime, timezone
+
+    try:
+        db_client = PostgresClient()
+        with db_client as db:
+            session = db.get_session()
+            now = datetime.now(timezone.utc)
+
+            # Get pending notifications scheduled in the future
+            notifications = session.query(Notification).filter(
+                Notification.user_id == current_user["user_id"],
+                Notification.status == "pending",
+                Notification.scheduled_at >= now
+            ).order_by(Notification.scheduled_at.asc()).limit(limit).all()
+
+            result = []
+            for n in notifications:
+                result.append(NotificationResponse(
+                    notification_id=str(n.notification_id),
+                    user_id=str(n.user_id),
+                    type=n.type,
+                    title=n.title,
+                    message=n.message,
+                    status=n.status,
+                    priority=n.priority,
+                    scheduled_at=n.scheduled_at,
+                    sent_at=n.sent_at,
+                    created_at=n.created_at,
+                    metadata=n.notification_metadata,
+                    retry_count=n.retry_count
+                ))
+
+            return NotificationListResponse(
+                notifications=result,
+                total=len(result),
+                page=1,
+                page_size=limit
+            )
+
+    except Exception as e:
+        logger.error(f"Error fetching upcoming notifications: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch upcoming notifications"
+        )
+
+
 # ==================== Admin/System Endpoints ====================
 
 @router.post(

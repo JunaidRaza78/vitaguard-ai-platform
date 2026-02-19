@@ -29,7 +29,7 @@ except ImportError:
 
 class DatabaseConfig:
     """PostgreSQL database configuration and connection management."""
-    
+
     def __init__(self):
         self.host: str = os.getenv("DB_HOST", "localhost")
         self.port: int = int(os.getenv("DB_PORT", "5432"))
@@ -38,6 +38,10 @@ class DatabaseConfig:
         self.password: str = os.getenv("DB_PASSWORD", "")
         self.pool_size: int = int(os.getenv("DB_POOL_SIZE", "5"))
         self.max_overflow: int = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+
+        # Singleton engine instance (CRITICAL FIX: reuse engine to prevent connection leaks)
+        self._engine: Optional[Engine] = None
+        self._session_factory: Optional[sessionmaker] = None
 
         logger.debug(f"PostgreSQL configuration initialized: {self.host}:{self.port}/{self.database} (user={self.user})")
         
@@ -76,34 +80,52 @@ class DatabaseConfig:
         logger.info(f"PostgreSQL engine created for {self.database}")
         return engine
     
+    def get_engine(self) -> Engine:
+        """
+        Get or create the singleton engine instance.
+        CRITICAL: Reuses the same engine to prevent connection pool exhaustion.
+        """
+        if self._engine is None:
+            logger.debug("Creating singleton PostgreSQL engine")
+            self._engine = self.create_engine()
+        return self._engine
+
     def get_session_factory(self, engine: Optional[Engine] = None) -> sessionmaker:
         """
-        Create session factory for database operations.
+        Get or create session factory for database operations.
 
         Args:
-            engine: Optional engine instance. If not provided, creates a new one.
+            engine: Optional engine instance. If not provided, uses singleton engine.
 
         Returns:
             Session factory
         """
-        logger.debug("Creating PostgreSQL session factory")
-        if engine is None:
-            engine = self.create_engine()
-        return sessionmaker(bind=engine, autocommit=False, autoflush=False)
-    
+        if self._session_factory is None:
+            logger.debug("Creating PostgreSQL session factory")
+            eng = engine if engine is not None else self.get_engine()
+            self._session_factory = sessionmaker(bind=eng, autocommit=False, autoflush=False)
+        return self._session_factory
+
     def get_session(self, engine: Optional[Engine] = None) -> Session:
         """
-        Get a database session.
+        Get a database session from the singleton engine.
 
         Args:
-            engine: Optional engine instance. If not provided, creates a new one.
+            engine: Optional engine instance. If not provided, uses singleton engine.
 
         Returns:
             Database session
         """
-        logger.debug("Getting PostgreSQL database session")
         session_factory = self.get_session_factory(engine)
         return session_factory()
+
+    def dispose_engine(self):
+        """Dispose of the engine and close all connections (for cleanup)."""
+        if self._engine is not None:
+            logger.info("Disposing PostgreSQL engine and closing all connections")
+            self._engine.dispose()
+            self._engine = None
+            self._session_factory = None
 
 
 # Global database configuration instance

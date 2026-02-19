@@ -39,8 +39,10 @@ class AuditLogger:
         status_code: int,
         duration_ms: float,
         details: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ):
-        """Write an audit log entry."""
+        """Write an audit log entry to both file and database."""
+        # Log to file
         entry = (
             f"user={user_id} | action={action} | resource={resource} | "
             f"method={method} | ip={ip_address} | status={status_code} | "
@@ -49,6 +51,60 @@ class AuditLogger:
         if details:
             entry += f" | details={details}"
         self._audit_logger.info(entry)
+
+        # Log to database (async, don't block request)
+        try:
+            self._log_to_database(
+                user_id=user_id,
+                action=action,
+                resource=resource,
+                ip_address=ip_address,
+                status_code=status_code,
+                user_agent=user_agent,
+                details=details,
+            )
+        except Exception as e:
+            logger.error(f"Failed to write audit log to database: {e}")
+
+    def _log_to_database(
+        self,
+        user_id: str,
+        action: str,
+        resource: str,
+        ip_address: str,
+        status_code: int,
+        user_agent: Optional[str] = None,
+        details: Optional[str] = None,
+    ):
+        """Write audit log entry to PostgreSQL."""
+        from shared.database.postgres.postgres_client import PostgresClient
+        from shared.database.postgres.models import AuditLog
+
+        try:
+            db_client = PostgresClient()
+            with db_client as db:
+                session = db.get_session()
+
+                # Extract resource type and ID from resource path
+                resource_parts = resource.strip('/').split('/')
+                resource_type = resource_parts[-2] if len(resource_parts) >= 2 else resource_parts[0]
+                resource_id = resource_parts[-1] if len(resource_parts) >= 2 and resource_parts[-1] else None
+
+                audit_entry = AuditLog(
+                    user_id=user_id if user_id != "anonymous" else None,
+                    action=action,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    response_status=status_code,
+                    details={"details": details} if details else {},
+                )
+                session.add(audit_entry)
+                session.commit()
+        except Exception as e:
+            logger.error(f"Database audit logging failed: {e}")
+            # Don't raise - audit logging should not break the request
 
 
 class RateLimiter:
@@ -123,6 +179,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             user_id = getattr(request.state, "user_id", "anonymous")
             path = request.url.path
             method = request.method
+            user_agent = request.headers.get("user-agent", "")
 
             # Skip health check endpoints
             if path not in ["/health", "/docs", "/openapi.json", "/favicon.ico"]:
@@ -134,6 +191,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     ip_address=client_ip,
                     status_code=response.status_code,
                     duration_ms=duration_ms,
+                    user_agent=user_agent,
                 )
 
         return response
