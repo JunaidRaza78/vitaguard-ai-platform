@@ -54,6 +54,7 @@ class User(Base):
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
     document_jobs = relationship("DocumentJob", back_populates="user", cascade="all, delete-orphan")
+    documents = relationship("UserDocument", back_populates="user", cascade="all, delete-orphan")
     api_rate_limits = relationship("ApiRateLimit", back_populates="user", cascade="all, delete-orphan")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
     login_attempts = relationship("LoginAttempt", back_populates="user", cascade="all, delete-orphan")
@@ -456,6 +457,37 @@ class DocumentJob(Base):
 
     def __repr__(self) -> str:
         return f"<DocumentJob(id={self.job_id}, status={self.status}, type={self.job_type})>"
+
+
+class UserDocument(Base):
+    """User-uploaded documents metadata."""
+    __tablename__ = "user_documents"
+
+    document_id = Column(String(255), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(
+        String(255),
+        ForeignKey('users.user_id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+    filename = Column(String(500), nullable=False)
+    file_path = Column(String, nullable=False)
+    file_size_bytes = Column(Integer)
+    document_type = Column(String(100), index=True)
+    chroma_ids = Column(String)  # Store as JSON string for ARRAY compatibility
+    processing_status = Column(String(50), nullable=False, default='pending', index=True)
+    specialty = Column(String(100))
+    upload_date = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False, index=True)
+    processed_at = Column(DateTime(timezone=True))
+    doc_metadata = Column(JSONB, default={})
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationship to User
+    user = relationship("User", back_populates="documents")
+
+    def __repr__(self) -> str:
+        return f"<UserDocument(id={self.document_id}, user={self.user_id}, file={self.filename})>"
 
 
 class ApiRateLimit(Base):

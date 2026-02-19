@@ -365,4 +365,35 @@ CREATE INDEX IF NOT EXISTS idx_login_attempts_user_id ON login_attempts(user_id)
 CREATE INDEX IF NOT EXISTS idx_login_attempts_email ON login_attempts(email);
 CREATE INDEX IF NOT EXISTS idx_login_attempts_attempted_at ON login_attempts(attempted_at);
 
+-- User Documents Table
+CREATE TABLE IF NOT EXISTS user_documents (
+    document_id VARCHAR(255) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+    user_id VARCHAR(255) NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    filename VARCHAR(500) NOT NULL,
+    file_path TEXT NOT NULL,
+    file_size_bytes BIGINT,
+    document_type VARCHAR(100),  -- lab_report, prescription, medical_record, scan, etc.
+    chroma_ids TEXT,  -- JSON string of ChromaDB IDs for this document's chunks
+    processing_status VARCHAR(50) NOT NULL DEFAULT 'pending',  -- pending, processing, completed, failed
+    specialty VARCHAR(100),  -- Detected medical specialty
+    upload_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    processed_at TIMESTAMP WITH TIME ZONE,
+    doc_metadata JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+);
+
+-- Create indexes on user_documents
+CREATE INDEX IF NOT EXISTS idx_user_documents_user_id ON user_documents(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_documents_status ON user_documents(processing_status);
+CREATE INDEX IF NOT EXISTS idx_user_documents_type ON user_documents(document_type);
+CREATE INDEX IF NOT EXISTS idx_user_documents_upload_date ON user_documents(upload_date DESC);
+
+-- Create trigger to automatically update updated_at on row update
+DROP TRIGGER IF EXISTS update_user_documents_updated_at ON user_documents;
+CREATE TRIGGER update_user_documents_updated_at
+    BEFORE UPDATE ON user_documents
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- Conversations Table (Unified conversation storage)

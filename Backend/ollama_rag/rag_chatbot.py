@@ -303,12 +303,22 @@ class MedicalRAGChatbot:
     # --------------------------------------------------
     # CONTEXT RETRIEVAL (RAG)
     # --------------------------------------------------
-    def _retrieve_context(self, question: str, specialty: Optional[str], top_k: int):
-        logger.info(f"Retrieving RAG context for: {question[:50]}...")
-        
+    def _retrieve_context(self, question: str, user_id: str, specialty: Optional[str], top_k: int):
+        """
+        Retrieve context with user isolation.
+
+        Args:
+            question: User query
+            user_id: REQUIRED - Filter by this user's documents
+            specialty: Optional specialty filter
+            top_k: Number of results
+        """
+        logger.info(f"Retrieving RAG context for user {user_id}: {question[:50]}...")
+
         try:
             results = query_medical_documents(
                 query_text=question,
+                user_id=user_id,  # NEW: Pass user_id for filtering
                 agent_specialty=specialty,
                 n_results=top_k,
                 alpha=0.7
@@ -347,8 +357,8 @@ class MedicalRAGChatbot:
     def chat(
         self,
         question: str,
+        user_id: str,  # NEW: REQUIRED parameter for user isolation
         conversation_id: Optional[str] = None,
-        user_id: Optional[str] = None,
         specialty: Optional[str] = None,
         top_k: int = 5,
         temperature: float = 0.3,
@@ -415,13 +425,20 @@ class MedicalRAGChatbot:
         logger.info(f"is_new_topic: {is_new_topic}")
         logger.info(f"history_length: {len(history)}")
 
+        # Check if question is about documents (force RAG mode)
+        document_keywords = ["document", "upload", "report", "summarize", "pdf", "file", "lab result", "test result", "prescription"]
+        is_document_question = any(keyword in question.lower() for keyword in document_keywords)
+        logger.info(f"is_document_question: {is_document_question}")
+
         # ---------------- FOLLOW-UP QUESTION MODE (FIXED) ----------------
         # Should ask follow-up if:
         # 1. It's a NEW vague complaint (like "not feeling well")
         # 2. OR it's a short response to previous question
+        # BUT NOT if it's a document-related question
         should_ask_followup = (
-            (is_new_topic and is_short_response and not has_enough_info) or  # NEW vague complaint
-            (not is_new_topic and is_short_response and not has_enough_info and not is_complex_question)  # Short answer
+            not is_document_question and  # NEW: Skip follow-up for document questions
+            ((is_new_topic and is_short_response and not has_enough_info) or  # NEW vague complaint
+            (not is_new_topic and is_short_response and not has_enough_info and not is_complex_question))  # Short answer
         )
 
         if should_ask_followup:
@@ -479,7 +496,8 @@ class MedicalRAGChatbot:
                 }
 
         # ---------------- ADVICE MODE ----------------
-        if has_enough_info:
+        # Skip advice mode for document questions - go straight to RAG
+        if has_enough_info and not is_document_question:
             logger.info("Mode: GIVING ADVICE")
             
             advice_prompt = [
@@ -534,9 +552,9 @@ class MedicalRAGChatbot:
 
         # ---------------- RAG SEARCH ----------------
         logger.info("Mode: RAG SEARCH (complex medical question)")
-        
+
         try:
-            context, sources = self._retrieve_context(question, specialty, top_k)
+            context, sources = self._retrieve_context(question, user_id, specialty, top_k)  # NEW: Pass user_id
         except Exception as e:
             logger.error(f"Error retrieving context: {e}", exc_info=True)
             context, sources = "", []

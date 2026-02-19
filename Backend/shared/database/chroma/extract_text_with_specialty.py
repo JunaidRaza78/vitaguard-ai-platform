@@ -186,32 +186,49 @@ def generate_content_hash(text):
 # ============================================
 
 # Find ALL PDFs
-def ingest_medical_pdfs():
+def ingest_medical_pdfs(user_id: str, document_id: str = None, pdf_path: Path = None):
     """
     Step 1:
     - Extract PDFs
     - Detect specialty / agent
     - Preprocess text
-    - Save to Chroma (no embeddings)
+    - Save to Chroma (no embeddings) with user isolation
+
+    Args:
+        user_id: The user who uploaded the document(s) - REQUIRED for user isolation
+        document_id: Optional document ID to link to PostgreSQL record
+        pdf_path: Optional specific PDF file path. If None, processes all PDFs in dataset
+
+    Returns:
+        Dict with processing results including chroma_ids
     """
 
     print("\n" + "="*60)
-    print("STEP 1: Extract PDF with Agent/Specialty")
+    print(f"STEP 1: Extract PDF with Agent/Specialty (User: {user_id})")
     print("="*60)
 
-    # Find ALL PDFs - use absolute path relative to this script's location
-    # This script is in Backend/shared/database/chroma/
-    # Dataset is in project_root/dataset/ (one level above Backend)
-    script_dir = Path(__file__).parent  # .../Backend/shared/database/chroma
-    backend_dir = script_dir.parent.parent.parent  # .../Backend
-    dataset_dir = backend_dir.parent / "dataset"  # .../project_root/dataset
-    
-    print(f"\\n📁 Looking for PDFs in: {dataset_dir}")
-    pdf_files = list(dataset_dir.glob("*.pdf"))
+    # Determine which PDFs to process
+    if pdf_path:
+        # Process single file
+        if not pdf_path.exists():
+            print(f"\n❌ File not found: {pdf_path}")
+            return {"processed": 0, "skipped": 0, "chroma_ids": []}
+        pdf_files = [pdf_path]
+        print(f"\n📁 Processing single file: {pdf_path}")
+    else:
+        # Find ALL PDFs - use absolute path relative to this script's location
+        # This script is in Backend/shared/database/chroma/
+        # Dataset is in project_root/dataset/ (one level above Backend)
+        script_dir = Path(__file__).parent  # .../Backend/shared/database/chroma
+        backend_dir = script_dir.parent.parent.parent  # .../Backend
+        dataset_dir = backend_dir.parent / "dataset"  # .../project_root/dataset
 
-    if not pdf_files:
-        print(f"\n❌ No PDFs found in {dataset_dir}")
-        return {"processed": 0, "skipped": 0}
+        print(f"\n📁 Looking for PDFs in: {dataset_dir}")
+        pdf_files = list(dataset_dir.glob("*.pdf"))
+
+        if not pdf_files:
+            print(f"\n❌ No PDFs found in {dataset_dir}")
+            return {"processed": 0, "skipped": 0, "chroma_ids": []}
 
     print(f"\n📚 Found {len(pdf_files)} PDF(s) to process")
     print("="*60)
@@ -249,6 +266,7 @@ def ingest_medical_pdfs():
     total_chunks = 0
     skipped_docs = 0
     specialty_counts = {}
+    all_chroma_ids = []  # Track all ChromaDB IDs for this document
 
     # Process PDFs
     for pdf_idx, pdf_path in enumerate(pdf_files, 1):
@@ -294,8 +312,9 @@ def ingest_medical_pdfs():
             continue
 
         # Save document name
+        doc_id = str(uuid.uuid4())
         collection.add(
-            ids=[str(uuid.uuid4())],
+            ids=[doc_id],
             documents=[doc_name.lower()],
             metadatas=[{
                 "type": "document_name",
@@ -303,9 +322,12 @@ def ingest_medical_pdfs():
                 "agent": specialty.value,
                 "source_file": pdf_path.name,
                 "content_hash": content_hash,
-                "indexed_at": datetime.utcnow().isoformat()
+                "indexed_at": datetime.utcnow().isoformat(),
+                "user_id": user_id,  # NEW: User isolation
+                "document_id": document_id or f"legacy_{doc_id[:8]}"  # NEW: Link to PostgreSQL
             }]
         )
+        all_chroma_ids.append(doc_id)  # Track ID
         total_docs += 1
 
         # Chunking
@@ -319,8 +341,9 @@ def ingest_medical_pdfs():
                 chunks.append(chunk)
 
         for i, chunk in enumerate(chunks[:20], 1):
+            chunk_id = str(uuid.uuid4())
             collection.add(
-                ids=[str(uuid.uuid4())],
+                ids=[chunk_id],
                 documents=[chunk],
                 metadatas=[{
                     "type": "content",
@@ -329,9 +352,12 @@ def ingest_medical_pdfs():
                     "document_name": doc_name.lower(),
                     "chunk_index": i,
                     "source_file": pdf_path.name,
-                    "content_hash": content_hash
+                    "content_hash": content_hash,
+                    "user_id": user_id,  # NEW: User isolation
+                    "document_id": document_id or f"legacy_{doc_id[:8]}"  # NEW: Link to PostgreSQL
                 }]
             )
+            all_chroma_ids.append(chunk_id)  # Track ID
         total_chunks += min(20, len(chunks))
 
     print("\n" + "="*60)
@@ -341,10 +367,16 @@ def ingest_medical_pdfs():
     print(f"   • Skipped: {skipped_docs}")
     print(f"   • New chunks: {total_chunks}")
     print(f"   • Total DB entries: {collection.count()}")
+    print(f"   • ChromaDB IDs tracked: {len(all_chroma_ids)}")
+
+    # Determine specialty (use the last processed file's specialty)
+    detected_specialty = list(specialty_counts.keys())[0] if specialty_counts else None
 
     return {
         "processed": total_docs,
         "skipped": skipped_docs,
         "chunks": total_chunks,
-        "specialties": specialty_counts
+        "specialties": specialty_counts,
+        "chroma_ids": all_chroma_ids,  # NEW: Return ChromaDB IDs
+        "specialty": detected_specialty  # NEW: Return detected specialty
     }

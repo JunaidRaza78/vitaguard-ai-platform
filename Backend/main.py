@@ -28,6 +28,7 @@ sys.path.insert(0, str(backend_dir))
 
 # Import authentication router
 from app.api.auth import router as auth_router
+from app.middleware.auth import get_current_active_user
 from shared.database.redis.redis_client import RedisClient
 
 # Import notifications router
@@ -155,9 +156,11 @@ import os
 if os.path.exists("/app"):
     # Docker environment
     DATASET_DIR = Path("/app/dataset")
+    CHROMA_DIR = Path("/app/shared/database/chroma/chroma_data")
 else:
     # Local development - dataset folder inside Backend
     DATASET_DIR = Path(__file__).parent / "dataset"
+    CHROMA_DIR = Path(__file__).parent / "shared" / "database" / "chroma" / "chroma_data"
 DATASET_DIR.mkdir(exist_ok=True)
 
 # Import document processing functions
@@ -615,25 +618,73 @@ class SearchRequest(BaseModel):
     top_k: int = 5
 
 
+async def process_user_document(user_id: str, document_id: str, file_path: Path):
+    """Background task to process a user's document."""
+    try:
+        logger.info(f"Processing document {document_id} for user {user_id}")
+
+        # Update status to processing
+        with postgres_client as db:
+            db.update_user_document(document_id, processing_status='processing')
+
+        # Ingest PDF with user context
+        result = ingest_medical_pdfs(user_id=user_id, document_id=document_id, pdf_path=file_path)
+
+        if result.get("processed", 0) > 0:
+            # Generate embeddings
+            generate_medical_embeddings()
+
+            # Convert chroma_ids list to JSON string for storage
+            import json
+            chroma_ids_str = json.dumps(result.get("chroma_ids", []))
+
+            # Update document record with success
+            with postgres_client as db:
+                db.update_user_document(
+                    document_id,
+                    chroma_ids=chroma_ids_str,
+                    processing_status='completed',
+                    specialty=result.get("specialty")
+                )
+
+            logger.info(f"Document {document_id} processed successfully")
+        else:
+            raise Exception("PDF processing failed")
+
+    except Exception as e:
+        logger.error(f"Error processing document {document_id}: {str(e)}", exc_info=True)
+
+        # Update status to failed
+        with postgres_client as db:
+            db.update_user_document(
+                document_id,
+                processing_status='failed',
+                metadata={"error": str(e)}
+            )
+
+
 @app.post(
     "/api/v1/documents/upload",
     tags=["Document Processing"],
     summary="Upload Medical PDF",
-    description="Upload a PDF document for ingestion and embedding generation"
+    description="Upload a PDF document for ingestion and embedding generation (Requires Authentication)"
 )
 async def upload_document(
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = None
+    background_tasks: BackgroundTasks = None,
+    current_user: dict = Depends(get_current_active_user)  # NEW: Require authentication
 ):
     """
     Upload a medical PDF document for processing.
+    REQUIRES AUTHENTICATION - Only processes documents for the authenticated user.
 
     - **file**: PDF file to upload
 
     The document will be:
-    1. Saved to the dataset directory
-    2. Ingested and text extracted (background task)
-    3. Embeddings generated for semantic search (background task)
+    1. Saved to the dataset directory with unique filename
+    2. Tracked in PostgreSQL with user ownership
+    3. Ingested and text extracted (background task)
+    4. Embeddings generated for semantic search (background task)
     """
     if not DOCUMENT_PROCESSING_AVAILABLE:
         raise HTTPException(
@@ -641,31 +692,54 @@ async def upload_document(
             detail="Document processing service is not available"
         )
 
+    user_id = current_user["user_id"]  # Extract user_id from JWT
+
     try:
         # Validate file type
         if not file.filename.endswith('.pdf'):
             logger.warning(f"Invalid file type attempted: {file.filename}")
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
-        file_path = DATASET_DIR / file.filename
-        logger.info(f"Uploading file: {file.filename} to {file_path}")
+        # Generate unique filename to avoid conflicts
+        unique_filename = f"{user_id}_{uuid.uuid4().hex[:8]}_{file.filename}"
+        file_path = DATASET_DIR / unique_filename
+        logger.info(f"Uploading file for user {user_id}: {file.filename} -> {file_path}")
 
-        # Save uploaded file
+        # Save uploaded file and get size
+        file_size = 0
         with open(file_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
+            content = await file.read()
+            file_size = len(content)
+            f.write(content)
 
-        logger.info(f"File saved successfully: {file.filename}")
+        logger.info(f"File saved: {file.filename} ({file_size} bytes)")
 
-        # Process in background
-        background_tasks.add_task(ingest_medical_pdfs)
-        background_tasks.add_task(generate_medical_embeddings)
+        # Create document record in PostgreSQL
+        with postgres_client as db:
+            user_doc = db.create_user_document(
+                user_id=user_id,
+                filename=file.filename,
+                file_path=str(file_path),
+                file_size_bytes=file_size,
+                processing_status='pending'
+            )
+            document_id = user_doc.document_id
 
-        logger.info(f"Background tasks scheduled for: {file.filename}")
+        # Process in background with user context
+        background_tasks.add_task(
+            process_user_document,
+            user_id=user_id,
+            document_id=document_id,
+            file_path=file_path
+        )
+
+        logger.info(f"Background task scheduled for document: {document_id}")
 
         return {
             "status": "accepted",
+            "document_id": document_id,
             "filename": file.filename,
-            "message": "PDF uploaded. Ingestion & embedding running in background."
+            "message": "PDF uploaded. Processing in background."
         }
 
     except HTTPException:
@@ -679,11 +753,15 @@ async def upload_document(
     "/api/v1/documents/search",
     tags=["Document Processing"],
     summary="Hybrid Search Documents",
-    description="Search medical documents using hybrid semantic + BM25 search"
+    description="Search YOUR medical documents using hybrid semantic + BM25 search (Requires Authentication)"
 )
-def search_documents(request: SearchRequest):
+def search_documents(
+    request: SearchRequest,
+    current_user: dict = Depends(get_current_active_user)  # NEW: Require authentication
+):
     """
     Search medical documents using hybrid search.
+    REQUIRES AUTHENTICATION - Only searches your own documents.
 
     - **query**: Search query text
     - **agent**: Optional medical specialty filter (e.g., cardiology, neurology)
@@ -697,6 +775,8 @@ def search_documents(request: SearchRequest):
             detail="Document search service is not available"
         )
 
+    user_id = current_user["user_id"]  # Extract user_id from JWT
+
     try:
         # Validate query
         if not request.query or len(request.query.strip()) == 0:
@@ -707,22 +787,23 @@ def search_documents(request: SearchRequest):
             logger.warning(f"Invalid top_k value: {request.top_k}")
             raise HTTPException(status_code=400, detail="top_k must be between 1 and 50")
 
-        logger.info(f"Search query: '{request.query}', agent: {request.agent}, top_k: {request.top_k}")
+        logger.info(f"Search by user {user_id}: '{request.query}', agent: {request.agent}, top_k: {request.top_k}")
 
         results = query_medical_documents(
             query_text=request.query,
+            user_id=user_id,  # NEW: Filter by user
             agent_specialty=request.agent,
             n_results=request.top_k
         )
 
-        logger.info(f"Search completed. Found {results.get('count', 0)} results")
+        logger.info(f"Search completed for user {user_id}. Found {results.get('count', 0)} results")
 
         return results
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Search error for query '{request.query}': {str(e)}", exc_info=True)
+        logger.error(f"Search error for user {user_id}, query '{request.query}': {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
@@ -739,18 +820,28 @@ class DocumentAskRequest(BaseModel):
 @app.post(
     "/api/v1/documents/ask",
     tags=["Document Processing"],
-    summary="Ask a question about uploaded documents",
-    description="Search documents and generate an AI answer based on the retrieved context",
+    summary="Ask a question about YOUR uploaded documents",
+    description="Search YOUR documents and generate an AI answer based on the retrieved context (Requires Authentication)",
 )
-async def ask_document(request: DocumentAskRequest):
-    """Ask a question using the uploaded documents as context via RAG pipeline."""
+async def ask_document(
+    request: DocumentAskRequest,
+    current_user: dict = Depends(get_current_active_user)  # NEW: Require authentication
+):
+    """
+    Ask a question using YOUR uploaded documents as context via RAG pipeline.
+    REQUIRES AUTHENTICATION - Only queries your own documents.
+    """
+    user_id = current_user["user_id"]  # Extract user_id from JWT
+
     try:
         from ollama_rag.rag_chatbot import get_chatbot
 
         chatbot = get_chatbot()
-        conv_id = f"doc_ask_{uuid.uuid4().hex[:12]}"
+        conv_id = f"doc_ask_{user_id}_{uuid.uuid4().hex[:12]}"  # Include user_id in conv_id
+
         result = chatbot.chat(
             question=request.question,
+            user_id=user_id,  # NEW: Pass user_id for document filtering
             conversation_id=conv_id,
             specialty=request.specialty,
             stream=False,
@@ -774,8 +865,138 @@ async def ask_document(request: DocumentAskRequest):
             "context_used": result.get("context_used", False) if isinstance(result, dict) else False,
         }
     except Exception as e:
-        logger.error(f"Document ask error: {e}")
+        logger.error(f"Document ask error for user {user_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to answer question: {str(e)}")
+
+
+# ==========================================
+# DOCUMENT MANAGEMENT ENDPOINTS
+# ==========================================
+
+class DocumentListResponse(BaseModel):
+    documents: list
+    total: int
+
+
+@app.get(
+    "/api/v1/documents/list",
+    response_model=DocumentListResponse,
+    tags=["Document Processing"],
+    summary="List YOUR uploaded documents",
+    description="Get a list of all documents you have uploaded with their metadata"
+)
+async def list_user_documents(
+    document_type: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """
+    List all documents uploaded by the authenticated user.
+
+    Query Parameters:
+    - document_type: Filter by type (lab_report, prescription, etc.)
+    - status: Filter by processing status (pending, processing, completed, failed)
+    - limit: Maximum number of documents to return (default: 100)
+    """
+    user_id = current_user["user_id"]
+
+    try:
+        with postgres_client as db:
+            docs = db.get_user_documents(
+                user_id=user_id,
+                document_type=document_type,
+                status=status,
+                limit=limit
+            )
+
+            doc_list = []
+            for doc in docs:
+                doc_list.append({
+                    "document_id": doc.document_id,
+                    "filename": doc.filename,
+                    "document_type": doc.document_type,
+                    "specialty": doc.specialty,
+                    "file_size_bytes": doc.file_size_bytes,
+                    "processing_status": doc.processing_status,
+                    "upload_date": doc.upload_date.isoformat() if doc.upload_date else None,
+                    "processed_at": doc.processed_at.isoformat() if doc.processed_at else None,
+                    "metadata": doc.doc_metadata
+                })
+
+            return {
+                "documents": doc_list,
+                "total": len(doc_list)
+            }
+
+    except Exception as e:
+        logger.error(f"Error listing documents for user {user_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list documents: {str(e)}")
+
+
+@app.delete(
+    "/api/v1/documents/{document_id}",
+    tags=["Document Processing"],
+    summary="Delete a document",
+    description="Delete one of your uploaded documents"
+)
+async def delete_document(
+    document_id: str,
+    current_user: dict = Depends(get_current_active_user)
+):
+    """
+    Delete a document you uploaded.
+    This will remove the file, ChromaDB vectors, and database records.
+    """
+    user_id = current_user["user_id"]
+
+    try:
+        with postgres_client as db:
+            # Get document and verify ownership
+            doc = db.get_user_document(document_id)
+
+            if not doc:
+                raise HTTPException(status_code=404, detail="Document not found")
+
+            if doc.user_id != user_id:
+                raise HTTPException(status_code=403, detail="You don't own this document")
+
+            # Delete from ChromaDB
+            if doc.chroma_ids:
+                try:
+                    import json
+                    import chromadb
+                    chroma_ids_list = json.loads(doc.chroma_ids) if isinstance(doc.chroma_ids, str) else doc.chroma_ids
+
+                    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+                    collection = client.get_collection("medical_docs")
+                    collection.delete(ids=chroma_ids_list)
+                    logger.info(f"Deleted {len(chroma_ids_list)} ChromaDB vectors")
+                except Exception as e:
+                    logger.error(f"Error deleting from ChromaDB: {e}")
+
+            # Delete file
+            try:
+                file_path = Path(doc.file_path)
+                if file_path.exists():
+                    file_path.unlink()
+                    logger.info(f"Deleted file: {file_path}")
+            except Exception as e:
+                logger.error(f"Error deleting file: {e}")
+
+            # Delete from database
+            db.delete_user_document(document_id)
+
+            return {
+                "status": "success",
+                "message": f"Document {doc.filename} deleted successfully"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting document {document_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {str(e)}")
 
 
 # ==========================================

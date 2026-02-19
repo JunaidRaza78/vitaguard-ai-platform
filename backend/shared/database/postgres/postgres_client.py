@@ -285,6 +285,108 @@ class PostgresClient:
         logger.debug(f"Document job updated: {job_id}")
         return job
 
+    # ==================== User Documents Operations ====================
+
+    @log_database_operation('CREATE', logger=logger)
+    def create_user_document(
+        self,
+        user_id: str,
+        filename: str,
+        file_path: str,
+        file_size_bytes: Optional[int] = None,
+        document_type: Optional[str] = None,
+        **kwargs
+    ):
+        """Create a user document record."""
+        from shared.database.postgres.models import UserDocument
+
+        logger.info(f"Creating document record: user={user_id}, file={filename}")
+        doc = UserDocument(
+            user_id=user_id,
+            filename=filename,
+            file_path=file_path,
+            file_size_bytes=file_size_bytes,
+            document_type=document_type,
+            **kwargs
+        )
+        self.get_session().add(doc)
+        self.get_session().commit()
+        logger.info(f"Document created: {doc.document_id}")
+        return doc
+
+    @log_database_operation('READ', logger=logger)
+    def get_user_documents(
+        self,
+        user_id: str,
+        document_type: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 100
+    ):
+        """Get all documents for a user."""
+        from shared.database.postgres.models import UserDocument
+
+        query = self.get_session().query(UserDocument).filter(
+            UserDocument.user_id == user_id
+        )
+
+        if document_type:
+            query = query.filter(UserDocument.document_type == document_type)
+
+        if status:
+            query = query.filter(UserDocument.processing_status == status)
+
+        return query.order_by(UserDocument.upload_date.desc()).limit(limit).all()
+
+    @log_database_operation('READ', logger=logger)
+    def get_user_document(self, document_id: str):
+        """Get a single document by ID."""
+        from shared.database.postgres.models import UserDocument
+
+        return self.get_session().query(UserDocument).filter(
+            UserDocument.document_id == document_id
+        ).first()
+
+    @log_database_operation('UPDATE', logger=logger)
+    def update_user_document(
+        self,
+        document_id: str,
+        chroma_ids: Optional[str] = None,
+        processing_status: Optional[str] = None,
+        specialty: Optional[str] = None,
+        metadata: Optional[Dict] = None
+    ):
+        """Update document processing status and metadata."""
+        from datetime import datetime, timezone
+
+        doc = self.get_user_document(document_id)
+        if not doc:
+            return None
+
+        if chroma_ids is not None:
+            doc.chroma_ids = chroma_ids
+        if processing_status:
+            doc.processing_status = processing_status
+            if processing_status == 'completed':
+                doc.processed_at = datetime.now(timezone.utc)
+        if specialty:
+            doc.specialty = specialty
+        if metadata:
+            doc.doc_metadata = {**doc.doc_metadata, **metadata}
+
+        doc.updated_at = datetime.now(timezone.utc)
+        self.get_session().commit()
+        return doc
+
+    @log_database_operation('DELETE', logger=logger)
+    def delete_user_document(self, document_id: str) -> bool:
+        """Delete a document record."""
+        doc = self.get_user_document(document_id)
+        if doc:
+            self.get_session().delete(doc)
+            self.get_session().commit()
+            return True
+        return False
+
     # ==================== API Rate Limit Operations ====================
 
     @log_database_operation('CHECK', logger=logger)
