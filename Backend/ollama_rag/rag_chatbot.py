@@ -324,12 +324,24 @@ class MedicalRAGChatbot:
                 alpha=0.7
             )
 
+            # Check if query is generic (about documents themselves vs. specific medical content)
+            generic_keywords = ["document", "upload", "summarize", "report", "file"]
+            is_generic_query = any(kw in question.lower() for kw in generic_keywords)
+
+            # Use lower threshold for generic queries, or accept top results if none meet threshold
+            relevance_threshold = MIN_RELEVANCE_SCORE * 50 if is_generic_query else MIN_RELEVANCE_SCORE * 100  # 5% vs 10%
+
             docs = [
                 r for r in results.get("results", [])
-                if r.get("score", 0) >= MIN_RELEVANCE_SCORE * 100
+                if r.get("score", 0) >= relevance_threshold
             ]
 
-            logger.info(f"Found {len(docs)} relevant documents")
+            # If generic query and still no results, take top 3 anyway
+            if is_generic_query and len(docs) == 0 and len(results.get("results", [])) > 0:
+                docs = results.get("results", [])[:3]
+                logger.info(f"Generic query with low scores - using top {len(docs)} results anyway")
+
+            logger.info(f"Found {len(docs)} relevant documents (threshold: {relevance_threshold}%)")
 
             context_parts = []
             tokens = 0
