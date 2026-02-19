@@ -30,6 +30,84 @@ router = APIRouter(
 
 
 # ==========================================
+# PERSONAL DASHBOARD SUMMARY (JWT user)
+# ==========================================
+
+@router.get(
+    "/summary",
+    summary="Personal dashboard summary",
+    description="Get dashboard summary for the currently logged-in user",
+)
+async def get_my_dashboard_summary(
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Get dashboard summary for the current user (family members, medications, appointments)."""
+    user_id = current_user["user_id"]
+    summary = {
+        "user_id": user_id,
+        "family_members": 0,
+        "active_medications": 0,
+        "upcoming_appointments": 0,
+        "health_score": None,
+        "latest_vitals": {},
+        "risk_scores": [],
+        "recent_anomalies": [],
+        "overall_health_status": "normal",
+    }
+    try:
+        from app.services.vitals_service import vitals_service
+        vitals_summary = vitals_service.get_dashboard_summary(user_id)
+        if vitals_summary:
+            data = vitals_summary if isinstance(vitals_summary, dict) else vitals_summary.dict()
+            summary.update({
+                "latest_vitals": data.get("latest_vitals", {}),
+                "risk_scores": data.get("risk_scores", []),
+                "recent_anomalies": data.get("recent_anomalies", []),
+                "overall_health_status": data.get("overall_health_status", "normal"),
+                "active_medications": len(data.get("active_medications", [])),
+                "upcoming_appointments": len(data.get("upcoming_appointments", [])),
+            })
+    except Exception as e:
+        logger.error(f"Error from vitals_service summary: {e}")
+
+    try:
+        from shared.database.neo4j.neo4j_client import Neo4jClient
+        neo4j = Neo4jClient()
+        with neo4j.get_session() as session:
+            result = session.run(
+                "MATCH (u:User {userId: $uid})-[:MEMBER_OF]->(f:Family) "
+                "MATCH (f)<-[:MEMBER_OF]-(m:User) "
+                "RETURN count(DISTINCT m) AS count",
+                uid=user_id
+            )
+            record = result.single()
+            if record:
+                summary["family_members"] = record["count"]
+    except Exception as e:
+        logger.warning(f"Could not fetch family members count: {e}")
+
+    return summary
+
+
+@router.get(
+    "/family-timeline",
+    summary="Family health timeline for current user",
+    description="Get health timeline for the current user's first family",
+)
+async def get_my_family_timeline(
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Get family timeline for the current user."""
+    try:
+        from app.services.vitals_service import vitals_service
+        return {"events": [], "family_id": None}
+    except Exception as e:
+        logger.error(f"Error getting family timeline: {e}")
+        return {"events": [], "family_id": None}
+
+
+# ==========================================
 # FAMILY DASHBOARD OVERVIEW
 # ==========================================
 

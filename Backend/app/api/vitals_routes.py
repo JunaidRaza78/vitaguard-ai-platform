@@ -269,3 +269,56 @@ async def get_dashboard_summary(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get dashboard summary",
         )
+
+
+# ==========================================
+# CONVENIENCE ENDPOINTS (user from JWT)
+# ==========================================
+
+@router.get(
+    "/my/anomalies",
+    response_model=AnomalyResponse,
+    summary="My anomalies",
+)
+async def get_my_anomalies(
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Detect anomalies for the currently authenticated user."""
+    try:
+        return vitals_service.detect_anomalies(current_user["user_id"], limit)
+    except Exception as e:
+        logger.error(f"Error detecting anomalies: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to detect anomalies")
+
+
+@router.get(
+    "/my/risk-scores",
+    response_model=RiskScoreResponse,
+    summary="My risk scores",
+)
+async def get_my_risk_scores(
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Calculate risk scores for the currently authenticated user."""
+    try:
+        return vitals_service.calculate_risk_scores(current_user["user_id"])
+    except Exception as e:
+        logger.error(f"Error calculating risk scores: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to calculate risk scores")
+
+
+@router.get(
+    "/my/latest",
+    response_model=LatestVitalsResponse,
+    summary="My latest vitals",
+)
+async def get_my_latest_vitals(
+    current_user: dict = Depends(get_current_active_user),
+):
+    """Get latest vitals for the currently authenticated user."""
+    try:
+        return vitals_service.get_latest_vitals(current_user["user_id"])
+    except Exception as e:
+        logger.error(f"Error getting latest vitals: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get latest vitals")

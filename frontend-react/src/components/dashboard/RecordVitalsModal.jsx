@@ -12,15 +12,41 @@ export default function RecordVitalsModal({ isOpen, onClose }) {
 
   const onSubmit = async (data) => {
     setLoading(true)
+    const today = new Date().toISOString().split('T')[0]
     try {
-      await api.post('/api/v1/vitals/record', {
-        vital_type: 'blood_pressure',
-        systolic: parseInt(data.systolic),
-        diastolic: parseInt(data.diastolic),
-        heart_rate: parseInt(data.heart_rate),
-        temperature: data.temperature ? parseFloat(data.temperature) : undefined,
-        weight: data.weight ? parseFloat(data.weight) : undefined,
-      })
+      const requests = []
+
+      // Blood pressure (systolic + diastolic + optional heart rate)
+      if (data.systolic && data.diastolic) {
+        requests.push(api.post('/api/v1/vitals/blood-pressure', {
+          systolic: parseFloat(data.systolic),
+          diastolic: parseFloat(data.diastolic),
+          heart_rate: data.heart_rate ? parseFloat(data.heart_rate) : undefined,
+          date: today,
+        }))
+      }
+
+      // Temperature
+      if (data.temperature) {
+        requests.push(api.post('/api/v1/vitals/record', {
+          vital_type: 'temperature',
+          value: parseFloat(data.temperature),
+          unit: '°F',
+          date: today,
+        }))
+      }
+
+      // Weight
+      if (data.weight) {
+        requests.push(api.post('/api/v1/vitals/record', {
+          vital_type: 'weight',
+          value: parseFloat(data.weight),
+          unit: 'lbs',
+          date: today,
+        }))
+      }
+
+      await Promise.all(requests)
       toast.success('Vitals recorded successfully')
       reset()
       onClose()

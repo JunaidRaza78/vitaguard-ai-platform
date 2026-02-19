@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Users, Plus, UserPlus, Link2, Trash2, Crown, ChevronRight } from 'lucide-react'
 import GlassCard from '@/components/ui/GlassCard'
 import Button from '@/components/ui/Button'
@@ -46,10 +46,11 @@ export default function FamilyPage() {
 
   const selectFamily = async (family) => {
     setSelectedFamily(family)
+    const fid = family.familyId || family.family_id || family.id
     try {
       const [membersRes, treeRes] = await Promise.allSettled([
-        api.get(`/api/v1/families/${family.id}/members`),
-        api.get(`/api/v1/families/${family.id}/tree`),
+        api.get(`/api/v1/families/${fid}/members`),
+        api.get(`/api/v1/families/${fid}/tree`),
       ])
       if (membersRes.status === 'fulfilled') setMembers(membersRes.value.data.members || membersRes.value.data || [])
       if (treeRes.status === 'fulfilled') setFamilyTree(treeRes.value.data)
@@ -59,7 +60,7 @@ export default function FamilyPage() {
   const createFamily = async () => {
     if (!familyName.trim()) return
     try {
-      const { data } = await api.post('/api/v1/families', { name: familyName })
+      await api.post('/api/v1/families', { name: familyName })
       toast.success('Family created')
       setShowCreateModal(false)
       setFamilyName('')
@@ -72,7 +73,8 @@ export default function FamilyPage() {
   const addMember = async () => {
     if (!memberEmail.trim() || !selectedFamily) return
     try {
-      await api.post(`/api/v1/families/${selectedFamily.id}/members`, { email: memberEmail })
+      const fid = selectedFamily.familyId || selectedFamily.family_id || selectedFamily.id
+      await api.post(`/api/v1/families/${fid}/members`, { email: memberEmail })
       toast.success('Member added')
       setShowAddMemberModal(false)
       setMemberEmail('')
@@ -85,7 +87,8 @@ export default function FamilyPage() {
   const removeMember = async (memberId) => {
     if (!selectedFamily) return
     try {
-      await api.delete(`/api/v1/families/${selectedFamily.id}/members/${memberId}`)
+      const fid = selectedFamily.familyId || selectedFamily.family_id || selectedFamily.id
+      await api.delete(`/api/v1/families/${fid}/members/${memberId}`)
       toast.success('Member removed')
       selectFamily(selectedFamily)
     } catch (err) {
@@ -96,7 +99,8 @@ export default function FamilyPage() {
   const createRelationship = async () => {
     if (!selectedFamily) return
     try {
-      await api.post(`/api/v1/families/${selectedFamily.id}/relationships`, relationship)
+      const fid = selectedFamily.familyId || selectedFamily.family_id || selectedFamily.id
+      await api.post(`/api/v1/families/${fid}/relationships`, relationship)
       toast.success('Relationship created')
       setShowRelationshipModal(false)
       selectFamily(selectedFamily)
@@ -206,17 +210,17 @@ export default function FamilyPage() {
                 className="flex items-center gap-3 glass rounded-xl p-3"
               >
                 <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${avatarColors[i % avatarColors.length]} flex items-center justify-center text-sm font-bold text-white`}>
-                  {getInitials(member.first_name, member.last_name)}
+                  {getInitials(member.name?.split(' ')[0], member.name?.split(' ')[1])}
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-white">
-                    {member.first_name} {member.last_name}
+                    {member.name || member.email || 'Unknown'}
                   </p>
                   <p className="text-xs text-white/40">{member.email}</p>
                 </div>
                 {member.role && <Badge color="violet">{member.role}</Badge>}
                 <button
-                  onClick={() => removeMember(member.id)}
+                  onClick={() => removeMember(member.userId || member.user_id || member.id)}
                   className="p-1.5 rounded-lg hover:bg-rose-500/10 text-white/30 hover:text-rose-400 transition-colors"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -240,9 +244,9 @@ export default function FamilyPage() {
                     {(familyTree.nodes || []).map((node, i) => (
                       <div key={i} className="flex flex-col items-center">
                         <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${avatarColors[i % avatarColors.length]} flex items-center justify-center text-sm font-bold text-white`}>
-                          {getInitials(node.first_name, node.last_name)}
+                          {getInitials(node.name?.split(' ')[0], node.name?.split(' ')[1])}
                         </div>
-                        <p className="text-[10px] text-white/50 mt-1">{node.first_name}</p>
+                        <p className="text-[10px] text-white/50 mt-1">{node.name?.split(' ')[0] || node.email}</p>
                       </div>
                     ))}
                   </div>
@@ -291,7 +295,7 @@ export default function FamilyPage() {
         <div className="space-y-4">
           <Select
             label="Member 1"
-            options={members.map(m => ({ value: m.id, label: `${m.first_name} ${m.last_name}` }))}
+            options={members.map(m => ({ value: m.userId || m.user_id || m.id, label: m.name || m.email || 'Unknown' }))}
             value={relationship.member1}
             onChange={(e) => setRelationship(prev => ({ ...prev, member1: e.target.value }))}
           />
@@ -308,7 +312,7 @@ export default function FamilyPage() {
           />
           <Select
             label="Member 2"
-            options={members.map(m => ({ value: m.id, label: `${m.first_name} ${m.last_name}` }))}
+            options={members.map(m => ({ value: m.userId || m.user_id || m.id, label: m.name || m.email || 'Unknown' }))}
             value={relationship.member2}
             onChange={(e) => setRelationship(prev => ({ ...prev, member2: e.target.value }))}
           />

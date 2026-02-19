@@ -33,7 +33,8 @@ class FamilyCreate(BaseModel):
 
 
 class FamilyMemberAdd(BaseModel):
-    user_id: str = Field(..., min_length=1)
+    user_id: Optional[str] = Field(default=None, min_length=1)
+    email: Optional[str] = Field(default=None)
     role: FamilyMemberRole = Field(default=FamilyMemberRole.MEMBER)
 
     model_config = {"from_attributes": True}

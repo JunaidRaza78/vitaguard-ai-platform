@@ -45,7 +45,8 @@ class VitalsOperations:
         vital_id = str(uuid.uuid4())
 
         query = """
-        MATCH (u:User {userId: $userId})
+        MERGE (u:User {userId: $userId})
+        ON CREATE SET u.createdAt = datetime()
         CREATE (vs:VitalSign {
             vitalId: $vitalId,
             type: $type,
@@ -197,7 +198,8 @@ class VitalsOperations:
         record_id = str(uuid.uuid4())
 
         query = """
-        MATCH (u:User {userId: $userId})
+        MERGE (u:User {userId: $userId})
+        ON CREATE SET u.createdAt = datetime()
         CREATE (gr:GrowthRecord {
             recordId: $recordId,
             date: date($date),
@@ -314,7 +316,8 @@ class VitalsOperations:
         result_id = str(uuid.uuid4())
 
         query = """
-        MATCH (u:User {userId: $userId})
+        MERGE (u:User {userId: $userId})
+        ON CREATE SET u.createdAt = datetime()
         CREATE (lr:LabResult {
             resultId: $resultId,
             testName: $testName,

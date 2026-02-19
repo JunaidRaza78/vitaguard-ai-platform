@@ -28,15 +28,24 @@ export default function DashboardPage() {
     try {
       const [summaryRes, vitalsRes, anomalyRes, riskRes, timelineRes] = await Promise.allSettled([
         api.get('/api/v1/dashboard/summary'),
-        api.get('/api/v1/vitals/trend'),
-        api.get('/api/v1/vitals/anomalies'),
-        api.get('/api/v1/vitals/risk-scores'),
+        api.get('/api/v1/vitals/my/latest'),
+        api.get('/api/v1/vitals/my/anomalies'),
+        api.get('/api/v1/vitals/my/risk-scores'),
         api.get('/api/v1/dashboard/family-timeline'),
       ])
 
-      if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value.data)
-      if (vitalsRes.status === 'fulfilled') setVitalsData(vitalsRes.value.data)
-      if (anomalyRes.status === 'fulfilled') setAnomalies(anomalyRes.value.data?.anomalies || [])
+      if (summaryRes.status === 'fulfilled') {
+        const d = summaryRes.value.data
+        setSummary({
+          ...d,
+          family_members: d.family_members ?? 0,
+          active_medications: Array.isArray(d.active_medications) ? d.active_medications.length : (d.active_medications ?? 0),
+          upcoming_appointments: Array.isArray(d.upcoming_appointments) ? d.upcoming_appointments.length : (d.upcoming_appointments ?? 0),
+          health_score: d.health_score ?? null,
+        })
+      }
+      if (vitalsRes.status === 'fulfilled') setVitalsData(vitalsRes.value.data?.vitals || vitalsRes.value.data || [])
+      if (anomalyRes.status === 'fulfilled') setAnomalies(anomalyRes.value.data?.alerts || anomalyRes.value.data?.anomalies || [])
       if (riskRes.status === 'fulfilled') setRiskScores(riskRes.value.data?.risk_scores || [])
       if (timelineRes.status === 'fulfilled') setTimeline(timelineRes.value.data?.events || [])
     } catch {

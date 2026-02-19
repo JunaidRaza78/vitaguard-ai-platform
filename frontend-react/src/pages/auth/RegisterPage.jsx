@@ -13,6 +13,7 @@ import useAuthStore from '@/stores/authStore'
 const schema = z.object({
   first_name: z.string().min(1, 'First name is required'),
   last_name: z.string().min(1, 'Last name is required'),
+  username: z.string().min(3, 'Username must be at least 3 characters'),
   email: z.string().email('Invalid email address'),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   confirm_password: z.string(),
@@ -70,6 +71,13 @@ export default function RegisterPage() {
             {...register('last_name')}
           />
         </div>
+        <Input
+          label="Username"
+          placeholder="johndoe123"
+          icon={User}
+          error={errors.username?.message}
+          {...register('username')}
+        />
         <Input
           label="Email"
           type="email"

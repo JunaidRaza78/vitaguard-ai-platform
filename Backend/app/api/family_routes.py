@@ -212,23 +212,42 @@ async def add_family_member(
                 detail="Family not found",
             )
 
-        # Look up added user's info so the Neo4j User node gets name/email
+        # Resolve user by email or user_id
         member_name = None
         member_email = None
+        resolved_user_id = member_data.user_id
+
         try:
             from shared.database.postgres.postgres_client import PostgresClient
             with PostgresClient() as db:
-                pg_user = db.get_user_by_id(member_data.user_id)
-            if pg_user:
+                if member_data.email and not resolved_user_id:
+                    pg_user = db.get_user_by_email(member_data.email)
+                else:
+                    pg_user = db.get_user_by_id(resolved_user_id)
+
+                if not pg_user:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="User not found. Make sure they are registered first.",
+                    )
+                # Read all attributes inside the session context
+                resolved_user_id = str(pg_user.user_id)
                 first = getattr(pg_user, "first_name", "") or ""
                 last = getattr(pg_user, "last_name", "") or ""
-                member_name = f"{first} {last}".strip() or getattr(pg_user, "username", "")
-                member_email = getattr(pg_user, "email", "")
+                member_name = f"{first} {last}".strip() or getattr(pg_user, "username", "") or pg_user.email
+                member_email = str(pg_user.email)
+        except HTTPException:
+            raise
         except Exception as lookup_err:
-            logger.warning(f"Could not fetch user info for Neo4j: {lookup_err}")
+            logger.warning(f"Could not fetch user info: {lookup_err}")
+            if not resolved_user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Provide either user_id or email",
+                )
 
         success = ops.add_user_to_family(
-            userId=member_data.user_id,
+            userId=resolved_user_id,
             familyId=family_id,
             role=member_data.role.value,
             name=member_name,
@@ -238,10 +257,10 @@ async def add_family_member(
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to add member. User may not exist.",
+                detail="Failed to add member. User may already be in this family.",
             )
 
-        return {"message": "Member added successfully", "family_id": family_id, "user_id": member_data.user_id}
+        return {"message": "Member added successfully", "family_id": family_id, "user_id": resolved_user_id}
     except HTTPException:
         raise
     except Exception as e:

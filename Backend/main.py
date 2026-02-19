@@ -7,6 +7,7 @@ import sys
 import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
+from typing import Optional
 import time
 import json
 import uuid
@@ -723,6 +724,58 @@ def search_documents(request: SearchRequest):
     except Exception as e:
         logger.error(f"Search error for query '{request.query}': {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
+# ==========================================
+# DOCUMENT Q&A ENDPOINT
+# ==========================================
+
+class DocumentAskRequest(BaseModel):
+    question: str
+    specialty: Optional[str] = None
+    top_k: int = 5
+
+
+@app.post(
+    "/api/v1/documents/ask",
+    tags=["Document Processing"],
+    summary="Ask a question about uploaded documents",
+    description="Search documents and generate an AI answer based on the retrieved context",
+)
+async def ask_document(request: DocumentAskRequest):
+    """Ask a question using the uploaded documents as context via RAG pipeline."""
+    try:
+        from ollama_rag.rag_chatbot import get_chatbot
+
+        chatbot = get_chatbot()
+        conv_id = f"doc_ask_{uuid.uuid4().hex[:12]}"
+        result = chatbot.chat(
+            question=request.question,
+            conversation_id=conv_id,
+            specialty=request.specialty,
+            stream=False,
+        )
+
+        sources = []
+        if isinstance(result, dict):
+            answer = result.get("answer", "")
+            raw_sources = result.get("sources", [])
+            for s in raw_sources:
+                if isinstance(s, dict):
+                    sources.append(s.get("source") or s.get("title") or str(s))
+                else:
+                    sources.append(str(s))
+        else:
+            answer = str(result)
+
+        return {
+            "answer": answer,
+            "sources": sources,
+            "context_used": result.get("context_used", False) if isinstance(result, dict) else False,
+        }
+    except Exception as e:
+        logger.error(f"Document ask error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to answer question: {str(e)}")
 
 
 # ==========================================

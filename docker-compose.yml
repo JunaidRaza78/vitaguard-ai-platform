@@ -34,9 +34,11 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=${DB_NAME:-family_health_db}
+      - DB_NAME=${DB_NAME:-health_manager}
       - DB_USER=${DB_USER:-postgres}
       - DB_PASSWORD=${DB_PASSWORD:-postgres}
+      - DB_POOL_SIZE=2
+      - DB_MAX_OVERFLOW=3
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=${NEO4J_USER:-neo4j}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-neo4j12345}
@@ -45,7 +47,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - OLLAMA_MODEL=${OLLAMA_MODEL:-deepseek-r1:8b}
       - REDIS_DB=${REDIS_DB:-0}
       - SECRET_KEY=${SECRET_KEY}
@@ -70,8 +72,6 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
     networks:
       - health-manager-network
     restart: unless-stopped
@@ -82,8 +82,9 @@ services:
   postgres:
     image: postgres:17-alpine
     container_name: health-manager-postgres
+    command: postgres -c max_connections=200
     environment:
-      - POSTGRES_DB=${DB_NAME:-family_health_db}
+      - POSTGRES_DB=${DB_NAME:-health_manager}
       - POSTGRES_USER=${DB_USER:-postgres}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
       - POSTGRES_INITDB_ARGS=--encoding=UTF-8
@@ -168,7 +169,7 @@ services:
     restart: unless-stopped
 
   # ==========================================
-  # OLLAMA (LLM)
+  # OLLAMA (LLM) - Optional service
   # ==========================================
   ollama:
     image: ollama/ollama:latest
@@ -186,6 +187,8 @@ services:
     networks:
       - health-manager-network
     restart: unless-stopped
+    profiles:
+      - full
 
   # ==========================================
   # ELASTICSEARCH (Optional)

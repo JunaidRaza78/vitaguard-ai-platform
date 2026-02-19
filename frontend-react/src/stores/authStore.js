@@ -13,7 +13,7 @@ const useAuthStore = create((set, get) => ({
       return
     }
     try {
-      const { data } = await api.get('/api/v1/auth/profile')
+      const { data } = await api.get('/api/v1/auth/me')
       set({ user: data, isAuthenticated: true, isLoading: false })
     } catch {
       localStorage.removeItem('access_token')
@@ -50,7 +50,7 @@ const useAuthStore = create((set, get) => ({
   },
 
   updateProfile: async (profileData) => {
-    const { data } = await api.put('/api/v1/auth/profile', profileData)
+    const { data } = await api.put('/api/v1/auth/me', profileData)
     set({ user: data })
     return data
   },

@@ -125,25 +125,33 @@ class RAGPostgresClient:
         except Exception:
             user_uuid = uuid.UUID(DEFAULT_SYSTEM_USER_ID)
 
-        with self.session_scope() as session:
-            session.execute(
-                text("""
-                    INSERT INTO conversations
-                    (conversation_id, user_id, title, status,
-                     created_at, updated_at, last_message_at, message_count)
-                    VALUES (:id, :user_id, :title, :status,
-                            :now, :now, :now, 0)
-                """),
-                {
-                    "id": conversation_id,
-                    "user_id": str(user_uuid),
-                    "title": title or f"Chat {now:%Y-%m-%d %H:%M}",
-                    "status": status,
-                    "now": now,
-                },
-            )
-
-        return self.get_conversation(conversation_id)
+        try:
+            with self.session_scope() as session:
+                session.execute(
+                    text("""
+                        INSERT INTO conversations
+                        (conversation_id, user_id, title, status,
+                         created_at, updated_at, last_message_at, message_count)
+                        VALUES (:id, :user_id, :title, :status,
+                                :now, :now, :now, 0)
+                    """),
+                    {
+                        "id": conversation_id,
+                        "user_id": str(user_uuid),
+                        "title": title or f"Chat {now:%Y-%m-%d %H:%M}",
+                        "status": status,
+                        "now": now,
+                    },
+                )
+            return self.get_conversation(conversation_id)
+        except Exception as e:
+            logger.warning(f"Could not persist conversation (user may not exist in DB): {e}")
+            return {
+                "conversation_id": conversation_id,
+                "user_id": str(user_uuid),
+                "title": title or f"Chat {now:%Y-%m-%d %H:%M}",
+                "status": status,
+            }
 
     def get_user_conversations(self, user_id: str, limit: int = 50) -> List[Dict]:
         limit = min(limit, MAX_CONVERSATIONS_LIMIT)
