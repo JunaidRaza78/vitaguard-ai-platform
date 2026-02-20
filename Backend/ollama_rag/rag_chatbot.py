@@ -28,7 +28,8 @@ from .prompts import (
     GREETING_RESPONSE,
     ERROR_MESSAGES,
     RAG_SAFETY_DISCLAIMER,
-    WEB_SAFETY_DISCLAIMER
+    WEB_SAFETY_DISCLAIMER,
+    DOCUMENT_RAG_PROMPT
 )
 
 # ------------------------------------------------------------------
@@ -671,6 +672,117 @@ class MedicalRAGChatbot:
                 "sources": [],
                 "error": str(e)
             }
+
+    # --------------------------------------------------
+    # DOCUMENT Q&A — Direct Hybrid Search → LLM
+    # Bypasses all conversation flow (no greeting/follow-up/advice modes)
+    # --------------------------------------------------
+    def ask_from_documents(
+        self,
+        question: str,
+        user_id: str,
+        specialty: Optional[str] = None,
+        top_k: int = 5,
+    ) -> dict:
+        """
+        Dedicated document Q&A pipeline:
+        Query → Hybrid Search (Semantic + BM25) → LLM formatted answer
+
+        Args:
+            question: User's question about their documents
+            user_id: Required for user isolation (only their documents)
+            specialty: Optional medical specialty filter
+            top_k: Number of document chunks to retrieve
+
+        Returns:
+            dict with answer, sources, context_used
+        """
+        logger.info(f"[DOC-ASK] user={user_id} question='{question[:60]}...'")
+
+        # Step 1: Hybrid Search (Semantic + BM25)
+        # Bypass threshold — for document queries always take top results
+        context = ""
+        sources = []
+        try:
+            results = query_medical_documents(
+                query_text=question,
+                user_id=user_id,
+                agent_specialty=specialty,
+                n_results=top_k,
+                alpha=0.7
+            )
+            docs = results.get("results", [])
+            logger.info(f"[DOC-ASK] Hybrid search returned {len(docs)} results")
+
+            context_parts = []
+            tokens = 0
+            for doc in docs:
+                block = doc.get("text", "")
+                block_tokens = self._estimate_tokens(block)
+                if tokens + block_tokens > MAX_CONTEXT_TOKENS:
+                    break
+                context_parts.append(block)
+                tokens += block_tokens
+                sources.append(doc)
+
+            context = "\n\n".join(context_parts)
+            logger.info(f"[DOC-ASK] Context: {len(context)} chars from {len(sources)} chunks")
+
+        except Exception as e:
+            logger.error(f"[DOC-ASK] Context retrieval failed: {e}", exc_info=True)
+
+        # Step 2: No documents found
+        if not context:
+            logger.warning(f"[DOC-ASK] No relevant context found for user {user_id}")
+            return {
+                "answer": (
+                    "No relevant information was found in your uploaded documents for this question. "
+                    "Please make sure you have uploaded the relevant medical document, "
+                    "or try rephrasing your question."
+                ),
+                "sources": [],
+                "context_used": False,
+            }
+
+        logger.info(f"[DOC-ASK] Retrieved {len(sources)} chunks, context={len(context)} chars")
+
+        # Step 3: Build prompt — Document context + user question
+        messages = [
+            {
+                "role": "system",
+                "content": DOCUMENT_RAG_PROMPT + "\n\n--- DOCUMENT CONTEXT ---\n" + context
+            },
+            {
+                "role": "user",
+                "content": question
+            }
+        ]
+
+        # Step 4: LLM generates answer
+        try:
+            response = self.llm.chat(messages=messages, temperature=0.2, stream=False)
+            logger.info(f"[DOC-ASK] LLM response: {len(response)} chars")
+
+            if not response or len(response.strip()) == 0:
+                response = "I could not generate an answer. Please try again or rephrase your question."
+
+        except Exception as e:
+            logger.error(f"[DOC-ASK] LLM call failed: {e}", exc_info=True)
+            return {
+                "answer": ERROR_MESSAGES["general_error"],
+                "sources": [],
+                "context_used": False,
+                "error": str(e),
+            }
+
+        return {
+            "answer": response,
+            "sources": [
+                {"file": s.get("source_file"), "relevance": round(s.get("score", 0), 2)}
+                for s in sources
+            ],
+            "context_used": True,
+        }
 
     # --------------------------------------------------
     # HEALTH CHECK

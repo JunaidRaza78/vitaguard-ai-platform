@@ -837,32 +837,20 @@ async def ask_document(
         from ollama_rag.rag_chatbot import get_chatbot
 
         chatbot = get_chatbot()
-        conv_id = f"doc_ask_{user_id}_{uuid.uuid4().hex[:12]}"  # Include user_id in conv_id
 
-        result = chatbot.chat(
+        # Use dedicated document Q&A pipeline:
+        # Query → Hybrid Search (Semantic + BM25) → LLM formatted answer
+        result = chatbot.ask_from_documents(
             question=request.question,
-            user_id=user_id,  # NEW: Pass user_id for document filtering
-            conversation_id=conv_id,
+            user_id=user_id,
             specialty=request.specialty,
-            stream=False,
+            top_k=request.top_k,
         )
 
-        sources = []
-        if isinstance(result, dict):
-            answer = result.get("answer", "")
-            raw_sources = result.get("sources", [])
-            for s in raw_sources:
-                if isinstance(s, dict):
-                    sources.append(s.get("source") or s.get("title") or str(s))
-                else:
-                    sources.append(str(s))
-        else:
-            answer = str(result)
-
         return {
-            "answer": answer,
-            "sources": sources,
-            "context_used": result.get("context_used", False) if isinstance(result, dict) else False,
+            "answer": result.get("answer", ""),
+            "sources": result.get("sources", []),
+            "context_used": result.get("context_used", False),
         }
     except Exception as e:
         logger.error(f"Document ask error for user {user_id}: {e}")

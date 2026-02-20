@@ -233,9 +233,12 @@ def ingest_medical_pdfs(user_id: str, document_id: str = None, pdf_path: Path = 
     print(f"\n📚 Found {len(pdf_files)} PDF(s) to process")
     print("="*60)
 
-    # Initialize Chroma
+    # Initialize Chroma — use absolute path (same as query_by_agent.py)
     print("\n🔌 Initializing Chroma...")
-    client = chromadb.PersistentClient(path="./chroma_data")
+    _script_dir = Path(__file__).resolve().parent  # .../shared/database/chroma/
+    _chroma_path = str(_script_dir / "chroma_data")
+    client = chromadb.PersistentClient(path=_chroma_path)
+    print(f"   📁 ChromaDB path: {_chroma_path}")
 
     try:
         collection = client.get_collection("medical_docs")
@@ -243,14 +246,16 @@ def ingest_medical_pdfs(user_id: str, document_id: str = None, pdf_path: Path = 
 
         existing_docs = collection.get(include=["metadatas"])
         # Store both filename and content_hash for duplicate detection
+        # CRITICAL: Filter by user_id — each user's files are independent
         existing_files = {
             meta.get("source_file") for meta in existing_docs["metadatas"]
+            if meta.get("user_id") == user_id
         }
         existing_hashes = {
             meta.get("content_hash") for meta in existing_docs["metadatas"]
-            if meta.get("content_hash")
+            if meta.get("content_hash") and meta.get("user_id") == user_id
         }
-        print(f"   ✅ Already processed: {len(existing_files)} PDFs")
+        print(f"   ✅ Already processed by this user: {len(existing_files)} PDFs")
         print(f"   ✅ Content hashes tracked: {len(existing_hashes)}")
 
     except:

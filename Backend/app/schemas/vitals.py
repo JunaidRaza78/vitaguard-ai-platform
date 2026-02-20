@@ -34,9 +34,9 @@ class AnomalyLevel(str, Enum):
 
 class RiskCategory(str, Enum):
     CARDIOVASCULAR = "cardiovascular"
-    DIABETES = "diabetes"
-    OBESITY = "obesity"
     HYPERTENSION = "hypertension"
+    FEVER = "fever"
+    HEART_RATE = "heart rate"
 
 
 # ==========================================

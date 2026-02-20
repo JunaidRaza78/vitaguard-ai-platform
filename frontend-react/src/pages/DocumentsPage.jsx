@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Upload, Search, FileText, CheckCircle, AlertCircle, CloudUpload, Bot, Send, Sparkles, User } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { Upload, FileText, CheckCircle, AlertCircle, CloudUpload, Bot, Send, Sparkles, User, Trash2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import GlassCard from '@/components/ui/GlassCard'
 import Button from '@/components/ui/Button'
@@ -16,24 +16,43 @@ const QUICK_PROMPTS = [
   'What follow-up actions are recommended?',
 ]
 
+const HISTORY_KEY = 'doc_chat_history'
+
 export default function DocumentsPage() {
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState([])
-  const [searching, setSearching] = useState(false)
   const [uploadedFiles, setUploadedFiles] = useState([])
 
-  // Document Q&A state
-  const [qaMessages, setQaMessages] = useState([])
+  // Document Q&A state — load from localStorage on mount
+  const [qaMessages, setQaMessages] = useState(() => {
+    try {
+      const saved = localStorage.getItem(HISTORY_KEY)
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
   const [qaInput, setQaInput] = useState('')
   const [qaLoading, setQaLoading] = useState(false)
   const qaEndRef = useRef(null)
 
+  // Save chat history to localStorage whenever messages change
+  useEffect(() => {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(qaMessages))
+    } catch {}
+  }, [qaMessages])
+
   useEffect(() => {
     qaEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [qaMessages])
+
+  const clearHistory = () => {
+    setQaMessages([])
+    localStorage.removeItem(HISTORY_KEY)
+    toast.success('Chat history cleared')
+  }
 
   const handleDrag = useCallback((e) => {
     e.preventDefault()
@@ -79,22 +98,6 @@ export default function DocumentsPage() {
     setDragActive(false)
     handleUpload(e.dataTransfer.files)
   }, [])
-
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return
-    setSearching(true)
-    try {
-      const { data } = await api.post('/api/v1/documents/search', {
-        query: searchQuery,
-        top_k: 5,
-      })
-      setSearchResults(data.results || data || [])
-    } catch {
-      toast.error('Search failed')
-    } finally {
-      setSearching(false)
-    }
-  }
 
   const askDocument = async (question) => {
     const q = (question || qaInput).trim()
@@ -195,11 +198,22 @@ export default function DocumentsPage() {
         )}
       </GlassCard>
 
-      {/* Document Q&A */}
+      {/* Document Q&A — single search interface */}
       <GlassCard glow="cyan">
-        <div className="flex items-center gap-2 mb-4">
-          <Bot className="w-4 h-4 text-cyan-400" />
-          <h3 className="text-sm font-semibold text-white/80">Ask AI About Documents</h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Bot className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-sm font-semibold text-white/80">Ask AI About Documents</h3>
+          </div>
+          {qaMessages.length > 0 && (
+            <button
+              onClick={clearHistory}
+              className="flex items-center gap-1 px-2 py-1 text-[11px] rounded-lg text-white/30 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all"
+            >
+              <Trash2 className="w-3 h-3" />
+              Clear
+            </button>
+          )}
         </div>
 
         {/* Quick prompts */}
@@ -260,12 +274,26 @@ export default function DocumentsPage() {
                   ) : (
                     <p>{msg.content}</p>
                   )}
+                  {msg.contextUsed === false && msg.role === 'assistant' && (
+                    <div className="mt-2 pt-2 border-t border-white/10">
+                      <p className="text-[10px] text-amber-400/70">⚠ No matching content found in your uploaded documents.</p>
+                    </div>
+                  )}
                   {msg.sources?.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-white/10">
-                      <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Sources</p>
-                      {msg.sources.map((src, j) => (
-                        <p key={j} className="text-[11px] text-cyan-400/70 truncate">• {src}</p>
-                      ))}
+                      <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Sources from your documents</p>
+                      {msg.sources.map((src, j) => {
+                        const fileName = typeof src === 'object' ? src.file : src
+                        const relevance = typeof src === 'object' ? src.relevance : null
+                        return (
+                          <div key={j} className="flex items-center justify-between gap-2 mt-0.5">
+                            <p className="text-[11px] text-cyan-400/70 truncate">• {fileName || 'Unknown file'}</p>
+                            {relevance != null && (
+                              <span className="text-[10px] text-emerald-400/60 flex-shrink-0">{relevance}%</span>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -305,60 +333,11 @@ export default function DocumentsPage() {
           </Button>
         </div>
         <p className="text-[10px] text-white/20 mt-2">
-          AI answers based on your uploaded documents and medical knowledge base.
+          AI answers based on your uploaded documents using hybrid semantic + keyword search.
         </p>
       </GlassCard>
 
-      {/* Semantic Search */}
-      <GlassCard>
-        <h3 className="text-sm font-semibold text-white/80 mb-3">Search Documents</h3>
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <Input
-              placeholder="Search your medical records..."
-              icon={Search}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            />
-          </div>
-          <Button onClick={handleSearch} loading={searching}>Search</Button>
-        </div>
-
-        <AnimatePresence>
-          {searchResults.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="mt-4 space-y-2"
-            >
-              {searchResults.map((result, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="glass rounded-xl p-4"
-                >
-                  <div className="flex items-start gap-3">
-                    <FileText className="w-5 h-5 text-cyan-400 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">
-                        {result.metadata?.source || result.title || 'Document'}
-                      </p>
-                      <p className="text-xs text-white/50 mt-1 line-clamp-3">
-                        {result.content || result.text || result.document}
-                      </p>
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </GlassCard>
-
-      {uploadedFiles.length === 0 && searchResults.length === 0 && qaMessages.length === 0 && (
+      {uploadedFiles.length === 0 && qaMessages.length === 0 && (
         <EmptyState
           icon={FileText}
           title="No documents yet"

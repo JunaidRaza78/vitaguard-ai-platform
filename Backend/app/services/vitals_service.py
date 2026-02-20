@@ -325,8 +325,11 @@ class VitalsService:
             raw_vitals = vitals_ops.get_user_vitals(user_id, limit=limit)
 
             alerts = []
+            seen_types = set()  # deduplicate: one alert per vital type (most recent)
             for v in raw_vitals:
                 vital_type = v.get("type", "")
+                if vital_type in seen_types:
+                    continue
                 value = v.get("value", 0)
                 level = self._classify_vital(vital_type, value)
 
@@ -345,6 +348,7 @@ class VitalsService:
                         message=self._build_anomaly_message(vital_type, value, level),
                         normal_range=f"{normal[0]}-{normal[1]} {unit}",
                     ))
+                seen_types.add(vital_type)
 
             critical = sum(1 for a in alerts if a.level == AnomalyLevel.CRITICAL)
             warning = sum(1 for a in alerts if a.level == AnomalyLevel.WARNING)
@@ -374,34 +378,38 @@ class VitalsService:
 
             risk_scores = []
 
-            # --- Cardiovascular Risk ---
-            cv_factors = []
-            cv_score = 0
             sys_data = latest.get("blood_pressure_systolic", {})
             dia_data = latest.get("blood_pressure_diastolic", {})
             hr_data = latest.get("heart_rate", {})
+            temp_data = latest.get("temperature", {})
 
+            # --- Cardiovascular Risk (Systolic BP + Heart Rate) ---
+            cv_factors = []
+            cv_score = 0
             if sys_data:
                 sys_val = sys_data.get("value", 0)
                 if sys_val >= 140:
-                    cv_score += 35
+                    cv_score += 50
                     cv_factors.append(f"High systolic BP: {sys_val} mmHg")
+                elif sys_val >= 130:
+                    cv_score += 35
+                    cv_factors.append(f"Elevated systolic BP: {sys_val} mmHg")
                 elif sys_val >= 121:
                     cv_score += 15
-                    cv_factors.append(f"Elevated systolic BP: {sys_val} mmHg")
-
-            if dia_data:
-                dia_val = dia_data.get("value", 0)
-                if dia_val >= 90:
-                    cv_score += 30
-                    cv_factors.append(f"High diastolic BP: {dia_val} mmHg")
-                elif dia_val >= 81:
-                    cv_score += 10
-                    cv_factors.append(f"Elevated diastolic BP: {dia_val} mmHg")
+                    cv_factors.append(f"Borderline high systolic BP: {sys_val} mmHg")
+                elif sys_val < 90 and sys_val > 0:
+                    cv_score += 40
+                    cv_factors.append(f"Low systolic BP (hypotension): {sys_val} mmHg")
+                elif sys_val < 100 and sys_val > 0:
+                    cv_score += 20
+                    cv_factors.append(f"Borderline low systolic BP: {sys_val} mmHg")
 
             if hr_data:
                 hr_val = hr_data.get("value", 0)
-                if hr_val > 100 or hr_val < 50:
+                if hr_val > 120 or hr_val < 40:
+                    cv_score += 40
+                    cv_factors.append(f"Critical heart rate: {hr_val} bpm")
+                elif hr_val > 100 or hr_val < 50:
                     cv_score += 20
                     cv_factors.append(f"Abnormal heart rate: {hr_val} bpm")
 
@@ -412,7 +420,7 @@ class VitalsService:
             )
             cv_rec = (
                 "Consult a cardiologist immediately" if cv_score >= 50
-                else "Monitor blood pressure regularly, consider lifestyle changes" if cv_score >= 20
+                else "Monitor blood pressure and heart rate regularly" if cv_score >= 20
                 else "Cardiovascular health within normal parameters"
             )
             risk_scores.append(RiskScoreItem(
@@ -423,79 +431,7 @@ class VitalsService:
                 recommendation=cv_rec,
             ))
 
-            # --- Diabetes Risk ---
-            db_factors = []
-            db_score = 0
-            glucose_data = latest.get("glucose", {})
-
-            if glucose_data:
-                gl_val = glucose_data.get("value", 0)
-                if gl_val >= 126:
-                    db_score += 60
-                    db_factors.append(f"Fasting glucose {gl_val} mg/dL (diabetic range)")
-                elif gl_val >= 101:
-                    db_score += 30
-                    db_factors.append(f"Fasting glucose {gl_val} mg/dL (pre-diabetic)")
-
-            bmi_data = latest.get("bmi", {})
-            if bmi_data:
-                bmi_val = bmi_data.get("value", 0)
-                if bmi_val >= 30:
-                    db_score += 25
-                    db_factors.append(f"BMI {bmi_val} (obese)")
-                elif bmi_val >= 25:
-                    db_score += 10
-                    db_factors.append(f"BMI {bmi_val} (overweight)")
-
-            db_level = (
-                AnomalyLevel.CRITICAL if db_score >= 50
-                else AnomalyLevel.WARNING if db_score >= 20
-                else AnomalyLevel.NORMAL
-            )
-            db_rec = (
-                "HbA1c test recommended. Consult endocrinologist" if db_score >= 50
-                else "Monitor glucose levels, consider dietary changes" if db_score >= 20
-                else "Diabetes risk within normal parameters"
-            )
-            risk_scores.append(RiskScoreItem(
-                category=RiskCategory.DIABETES,
-                score=min(db_score, 100),
-                level=db_level,
-                contributing_factors=db_factors,
-                recommendation=db_rec,
-            ))
-
-            # --- Obesity Risk ---
-            ob_factors = []
-            ob_score = 0
-            if bmi_data:
-                bmi_val = bmi_data.get("value", 0)
-                if bmi_val >= 30:
-                    ob_score += 60
-                    ob_factors.append(f"BMI {bmi_val} (obese)")
-                elif bmi_val >= 25:
-                    ob_score += 30
-                    ob_factors.append(f"BMI {bmi_val} (overweight)")
-
-            ob_level = (
-                AnomalyLevel.CRITICAL if ob_score >= 50
-                else AnomalyLevel.WARNING if ob_score >= 20
-                else AnomalyLevel.NORMAL
-            )
-            ob_rec = (
-                "Weight management program recommended. Consult nutritionist" if ob_score >= 50
-                else "Consider regular exercise and balanced diet" if ob_score >= 20
-                else "Weight within healthy range"
-            )
-            risk_scores.append(RiskScoreItem(
-                category=RiskCategory.OBESITY,
-                score=min(ob_score, 100),
-                level=ob_level,
-                contributing_factors=ob_factors,
-                recommendation=ob_rec,
-            ))
-
-            # --- Hypertension Risk ---
+            # --- Hypertension Risk (Systolic + Diastolic BP) ---
             ht_factors = []
             ht_score = 0
             if sys_data:
@@ -509,6 +445,24 @@ class VitalsService:
                 elif sys_val >= 121:
                     ht_score += 15
                     ht_factors.append(f"Elevated blood pressure: {sys_val} mmHg")
+                elif sys_val < 90 and sys_val > 0:
+                    ht_score += 35
+                    ht_factors.append(f"Critically low systolic BP (hypotension): {sys_val} mmHg")
+
+            if dia_data:
+                dia_val = dia_data.get("value", 0)
+                if dia_val >= 90:
+                    ht_score += 40
+                    ht_factors.append(f"High diastolic BP: {dia_val} mmHg")
+                elif dia_val >= 81:
+                    ht_score += 20
+                    ht_factors.append(f"Elevated diastolic BP: {dia_val} mmHg")
+                elif dia_val < 60 and dia_val > 0:
+                    ht_score += 35
+                    ht_factors.append(f"Critically low diastolic BP: {dia_val} mmHg")
+                elif dia_val < 70 and dia_val > 0:
+                    ht_score += 15
+                    ht_factors.append(f"Low diastolic BP: {dia_val} mmHg")
 
             ht_level = (
                 AnomalyLevel.CRITICAL if ht_score >= 50
@@ -516,8 +470,8 @@ class VitalsService:
                 else AnomalyLevel.NORMAL
             )
             ht_rec = (
-                "Medication review needed. Restrict sodium, increase potassium" if ht_score >= 50
-                else "Lifestyle modifications: reduce salt, exercise regularly" if ht_score >= 20
+                "Seek immediate medical attention for blood pressure abnormality" if ht_score >= 50
+                else "Monitor blood pressure closely, consult your doctor" if ht_score >= 20
                 else "Blood pressure within healthy range"
             )
             risk_scores.append(RiskScoreItem(
@@ -526,6 +480,81 @@ class VitalsService:
                 level=ht_level,
                 contributing_factors=ht_factors,
                 recommendation=ht_rec,
+            ))
+
+            # --- Fever Risk (Temperature) ---
+            fv_factors = []
+            fv_score = 0
+            if temp_data:
+                temp_val = temp_data.get("value", 0)
+                if temp_val >= 103:
+                    fv_score += 80
+                    fv_factors.append(f"High fever: {temp_val} °F")
+                elif temp_val >= 101:
+                    fv_score += 55
+                    fv_factors.append(f"Moderate fever: {temp_val} °F")
+                elif temp_val >= 99.5:
+                    fv_score += 30
+                    fv_factors.append(f"Low-grade fever: {temp_val} °F")
+                elif temp_val < 96 and temp_val > 0:
+                    fv_score += 50
+                    fv_factors.append(f"Hypothermia risk: {temp_val} °F")
+                elif temp_val < 97 and temp_val > 0:
+                    fv_score += 20
+                    fv_factors.append(f"Below normal temperature: {temp_val} °F")
+
+            fv_level = (
+                AnomalyLevel.CRITICAL if fv_score >= 50
+                else AnomalyLevel.WARNING if fv_score >= 20
+                else AnomalyLevel.NORMAL
+            )
+            fv_rec = (
+                "Seek medical attention immediately for high fever" if fv_score >= 50
+                else "Rest, stay hydrated, monitor temperature" if fv_score >= 20
+                else "Body temperature within normal range"
+            )
+            risk_scores.append(RiskScoreItem(
+                category=RiskCategory.FEVER,
+                score=min(fv_score, 100),
+                level=fv_level,
+                contributing_factors=fv_factors,
+                recommendation=fv_rec,
+            ))
+
+            # --- Heart Rate Risk ---
+            hr_factors = []
+            hr_score = 0
+            if hr_data:
+                hr_val = hr_data.get("value", 0)
+                if hr_val > 120 or hr_val < 40:
+                    hr_score += 70
+                    hr_factors.append(f"Critical heart rate: {hr_val} bpm")
+                elif hr_val > 100:
+                    hr_score += 40
+                    hr_factors.append(f"Tachycardia (fast heart rate): {hr_val} bpm")
+                elif hr_val < 50:
+                    hr_score += 35
+                    hr_factors.append(f"Bradycardia (slow heart rate): {hr_val} bpm")
+                elif hr_val > 90:
+                    hr_score += 15
+                    hr_factors.append(f"Slightly elevated heart rate: {hr_val} bpm")
+
+            hr_level = (
+                AnomalyLevel.CRITICAL if hr_score >= 50
+                else AnomalyLevel.WARNING if hr_score >= 20
+                else AnomalyLevel.NORMAL
+            )
+            hr_rec = (
+                "Seek immediate medical attention for abnormal heart rate" if hr_score >= 50
+                else "Monitor heart rate, avoid strenuous activity" if hr_score >= 20
+                else "Heart rate within normal parameters"
+            )
+            risk_scores.append(RiskScoreItem(
+                category=RiskCategory.HEART_RATE,
+                score=min(hr_score, 100),
+                level=hr_level,
+                contributing_factors=hr_factors,
+                recommendation=hr_rec,
             ))
 
             # Overall risk

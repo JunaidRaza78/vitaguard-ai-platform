@@ -66,3 +66,16 @@ yarn-error.log*
 # =========================
 .cache/
 .temp/
+
+# =========================
+# ChromaDB / Vector DB (auto-generated)
+# =========================
+**/chroma_data/
+**/*.sqlite3
+**/bm25_index/
+**/length.bin
+
+# =========================
+# User-uploaded documents
+# =========================
+Backend/dataset/

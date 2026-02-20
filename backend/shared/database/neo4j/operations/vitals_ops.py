@@ -95,7 +95,7 @@ class VitalsOperations:
         MATCH (u:User {userId: $userId})-[:HAS_VITAL]->(vs:VitalSign)
         WHERE $type IS NULL OR vs.type = $type
         RETURN vs
-        ORDER BY vs.date DESC, vs.time DESC
+        ORDER BY vs.date DESC, vs.time DESC, vs.createdAt DESC
         LIMIT $limit
         """
 
@@ -140,7 +140,7 @@ class VitalsOperations:
         query = """
         MATCH (u:User {userId: $userId})-[:HAS_VITAL]->(vs:VitalSign)
         WITH vs.type as vitalType, vs
-        ORDER BY vs.date DESC, vs.time DESC
+        ORDER BY vs.date DESC, vs.time DESC, vs.createdAt DESC
         WITH vitalType, collect(vs)[0] as latestVital
         RETURN vitalType, latestVital
         """

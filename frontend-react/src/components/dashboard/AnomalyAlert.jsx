@@ -15,9 +15,21 @@ const severityIcons = {
   low: 'text-emerald-400',
 }
 
+// Map backend level field to frontend severity
+const levelToSeverity = { critical: 'high', warning: 'medium', normal: 'low' }
+
+// Format vital_type snake_case to Title Case
+function formatVitalType(vitalType) {
+  if (!vitalType) return 'Unknown metric'
+  return vitalType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
 export default function AnomalyAlert({ anomaly, index = 0 }) {
-  const severity = anomaly?.severity || 'medium'
-  const trend = anomaly?.trend || 'up'
+  // Support both legacy fields (metric/severity/timestamp) and backend fields (vital_type/level/date)
+  const metric = anomaly?.metric || formatVitalType(anomaly?.vital_type)
+  const severity = anomaly?.severity || levelToSeverity[anomaly?.level] || 'medium'
+  const trend = anomaly?.trend || (anomaly?.level === 'critical' ? 'up' : 'down')
+  const timestamp = anomaly?.timestamp || anomaly?.date
 
   return (
     <motion.div
@@ -34,7 +46,7 @@ export default function AnomalyAlert({ anomaly, index = 0 }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium text-white">{anomaly?.metric || 'Unknown metric'}</p>
+          <p className="text-sm font-medium text-white">{metric}</p>
           {trend === 'up' ? (
             <TrendingUp className="w-3 h-3 text-rose-400" />
           ) : (
@@ -42,8 +54,8 @@ export default function AnomalyAlert({ anomaly, index = 0 }) {
           )}
         </div>
         <p className="text-xs text-white/50 mt-1">{anomaly?.message || 'Anomaly detected'}</p>
-        {anomaly?.timestamp && (
-          <p className="text-[10px] text-white/30 mt-1">{formatRelativeTime(anomaly.timestamp)}</p>
+        {timestamp && (
+          <p className="text-[10px] text-white/30 mt-1">{formatRelativeTime(timestamp)}</p>
         )}
       </div>
       <span className={cn(
