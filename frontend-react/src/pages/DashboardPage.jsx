@@ -28,7 +28,7 @@ export default function DashboardPage() {
     try {
       const [summaryRes, vitalsRes, anomalyRes, riskRes, timelineRes] = await Promise.allSettled([
         api.get('/api/v1/dashboard/summary'),
-        api.get('/api/v1/vitals/my/latest'),
+        api.get('/api/v1/vitals/my/trend?limit=30'),
         api.get('/api/v1/vitals/my/anomalies'),
         api.get('/api/v1/vitals/my/risk-scores'),
         api.get('/api/v1/dashboard/family-timeline'),
@@ -44,7 +44,7 @@ export default function DashboardPage() {
           health_score: d.health_score ?? null,
         })
       }
-      if (vitalsRes.status === 'fulfilled') setVitalsData(vitalsRes.value.data?.vitals || vitalsRes.value.data || [])
+      if (vitalsRes.status === 'fulfilled') setVitalsData(vitalsRes.value.data?.data || [])
       if (anomalyRes.status === 'fulfilled') setAnomalies(anomalyRes.value.data?.alerts || anomalyRes.value.data?.anomalies || [])
       if (riskRes.status === 'fulfilled') setRiskScores(riskRes.value.data?.risk_scores || [])
       if (timelineRes.status === 'fulfilled') setTimeline(timelineRes.value.data?.events || [])
@@ -156,7 +156,11 @@ export default function DashboardPage() {
         )}
       </GlassCard>
 
-      <RecordVitalsModal isOpen={showVitalsModal} onClose={() => setShowVitalsModal(false)} />
+      <RecordVitalsModal
+        isOpen={showVitalsModal}
+        onClose={() => setShowVitalsModal(false)}
+        onSuccess={() => { setShowVitalsModal(false); loadDashboard() }}
+      />
     </div>
   )
 }

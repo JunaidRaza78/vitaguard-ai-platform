@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { Users, Plus, UserPlus, Link2, Trash2, Crown, ChevronRight } from 'lucide-react'
+import { Users, Plus, UserPlus, Link2, Trash2, Crown } from 'lucide-react'
 import GlassCard from '@/components/ui/GlassCard'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
@@ -8,6 +8,7 @@ import Modal from '@/components/ui/Modal'
 import Badge from '@/components/ui/Badge'
 import Select from '@/components/ui/Select'
 import EmptyState from '@/components/ui/EmptyState'
+import FamilyTreeSVG from '@/components/family/FamilyTreeSVG'
 import { getInitials } from '@/lib/utils'
 import api from '@/lib/axios'
 import toast from 'react-hot-toast'
@@ -23,7 +24,8 @@ export default function FamilyPage() {
   const [loading, setLoading] = useState(true)
   const [familyName, setFamilyName] = useState('')
   const [memberEmail, setMemberEmail] = useState('')
-  const [relationship, setRelationship] = useState({ member1: '', member2: '', type: 'parent' })
+  const [memberName, setMemberName] = useState('')
+  const [relationship, setRelationship] = useState({ member1: '', member2: '', type: 'PARENT_OF' })
 
   useEffect(() => {
     loadFamilies()
@@ -48,12 +50,12 @@ export default function FamilyPage() {
     setSelectedFamily(family)
     const fid = family.familyId || family.family_id || family.id
     try {
-      const [membersRes, treeRes] = await Promise.allSettled([
+      const [membersRes, relsRes] = await Promise.allSettled([
         api.get(`/api/v1/families/${fid}/members`),
-        api.get(`/api/v1/families/${fid}/tree`),
+        api.get(`/api/v1/families/${fid}/relationships`),
       ])
       if (membersRes.status === 'fulfilled') setMembers(membersRes.value.data.members || membersRes.value.data || [])
-      if (treeRes.status === 'fulfilled') setFamilyTree(treeRes.value.data)
+      if (relsRes.status === 'fulfilled') setFamilyTree(relsRes.value.data)
     } catch {}
   }
 
@@ -71,16 +73,39 @@ export default function FamilyPage() {
   }
 
   const addMember = async () => {
-    if (!memberEmail.trim() || !selectedFamily) return
+    if ((!memberEmail.trim() && !memberName.trim()) || !selectedFamily) return
     try {
       const fid = selectedFamily.familyId || selectedFamily.family_id || selectedFamily.id
-      await api.post(`/api/v1/families/${fid}/members`, { email: memberEmail })
+      await api.post(`/api/v1/families/${fid}/members`, {
+        email: memberEmail || undefined,
+        name: memberName || undefined,
+      })
       toast.success('Member added')
       setShowAddMemberModal(false)
       setMemberEmail('')
+      setMemberName('')
+      loadFamilies()
       selectFamily(selectedFamily)
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to add member')
+    }
+  }
+
+  const deleteFamily = async (family, e) => {
+    e.stopPropagation()
+    if (!window.confirm(`Delete "${family.name}"?`)) return
+    try {
+      const fid = family.familyId || family.id
+      await api.delete(`/api/v1/families/${fid}`)
+      toast.success('Family deleted')
+      if (selectedFamily?.familyId === fid) {
+        setSelectedFamily(null)
+        setMembers([])
+        setFamilyTree(null)
+      }
+      loadFamilies()
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Failed to delete family')
     }
   }
 
@@ -97,10 +122,13 @@ export default function FamilyPage() {
   }
 
   const createRelationship = async () => {
-    if (!selectedFamily) return
+    if (!selectedFamily || !relationship.member1 || !relationship.member2) return
     try {
-      const fid = selectedFamily.familyId || selectedFamily.family_id || selectedFamily.id
-      await api.post(`/api/v1/families/${fid}/relationships`, relationship)
+      await api.post(`/api/v1/families/relationships`, {
+        user1_id: relationship.member1,
+        relationship_type: relationship.type,
+        user2_id: relationship.member2,
+      })
       toast.success('Relationship created')
       setShowRelationshipModal(false)
       selectFamily(selectedFamily)
@@ -136,13 +164,13 @@ export default function FamilyPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {families.map((family, i) => (
             <motion.div
-              key={family.id}
+              key={family.familyId || family.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
             >
               <GlassCard
-                className={`cursor-pointer ${selectedFamily?.id === family.id ? 'glow-cyan border-cyan-500/30' : ''}`}
+                className={`cursor-pointer ${selectedFamily?.familyId === family.familyId ? 'glow-cyan border-cyan-500/30' : ''}`}
                 onClick={() => selectFamily(family)}
               >
                 <div className="flex items-center justify-between mb-3">
@@ -150,20 +178,15 @@ export default function FamilyPage() {
                     <Users className="w-5 h-5 text-cyan-400" />
                     <h3 className="font-semibold text-white">{family.name}</h3>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-white/30" />
+                  <button
+                    onClick={(e) => deleteFamily(family, e)}
+                    className="p-1.5 rounded-lg hover:bg-rose-500/10 text-white/20 hover:text-rose-400 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-                <div className="flex -space-x-2">
-                  {(family.members || []).slice(0, 5).map((m, j) => (
-                    <div
-                      key={j}
-                      className={`w-8 h-8 rounded-full bg-gradient-to-br ${avatarColors[j % avatarColors.length]} flex items-center justify-center text-[10px] font-bold text-white border-2 border-dark-800`}
-                    >
-                      {getInitials(m.first_name, m.last_name)}
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-white/40 mt-2">
-                  {family.member_count || family.members?.length || 0} members
+                <p className="text-xs text-white/40">
+                  {family.member_count ?? 0} members
                 </p>
               </GlassCard>
             </motion.div>
@@ -230,30 +253,21 @@ export default function FamilyPage() {
           </div>
 
           {/* Family Tree Visualization */}
-          {familyTree && (
-            <div className="mt-6 pt-4 border-t border-white/10">
-              <h4 className="text-sm font-medium text-white/60 mb-3">Family Tree</h4>
-              <div className="glass rounded-xl p-6 min-h-[200px] flex items-center justify-center">
-                <div className="text-center">
-                  <Users className="w-8 h-8 text-cyan-400/40 mx-auto mb-2" />
-                  <p className="text-xs text-white/40">
-                    {familyTree.nodes?.length || 0} members connected
-                  </p>
-                  {/* Interactive tree would go here with SVG/Canvas */}
-                  <div className="flex flex-wrap justify-center gap-3 mt-4">
-                    {(familyTree.nodes || []).map((node, i) => (
-                      <div key={i} className="flex flex-col items-center">
-                        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${avatarColors[i % avatarColors.length]} flex items-center justify-center text-sm font-bold text-white`}>
-                          {getInitials(node.name?.split(' ')[0], node.name?.split(' ')[1])}
-                        </div>
-                        <p className="text-[10px] text-white/50 mt-1">{node.name?.split(' ')[0] || node.email}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+          <div className="mt-6 pt-4 border-t border-white/10">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium text-white/60">Family Tree</h4>
+              {familyTree?.relationships?.length === 0 && (
+                <p className="text-[11px] text-white/30">Add relationships to see connections</p>
+              )}
             </div>
-          )}
+            <div className="glass rounded-xl p-4">
+              <FamilyTreeSVG
+                members={members}
+                relationships={familyTree?.relationships || []}
+                rootUserId={selectedFamily?.createdBy}
+              />
+            </div>
+          </div>
         </GlassCard>
       )}
 
@@ -277,7 +291,13 @@ export default function FamilyPage() {
       <Modal isOpen={showAddMemberModal} onClose={() => setShowAddMemberModal(false)} title="Add Member">
         <div className="space-y-4">
           <Input
-            label="Member Email"
+            label="Member Name"
+            placeholder="e.g., Ahmed Khan"
+            value={memberName}
+            onChange={(e) => setMemberName(e.target.value)}
+          />
+          <Input
+            label="Member Email (optional)"
             type="email"
             placeholder="member@example.com"
             value={memberEmail}
@@ -302,10 +322,10 @@ export default function FamilyPage() {
           <Select
             label="Relationship Type"
             options={[
-              { value: 'parent', label: 'Parent of' },
-              { value: 'spouse', label: 'Spouse of' },
-              { value: 'sibling', label: 'Sibling of' },
-              { value: 'child', label: 'Child of' },
+              { value: 'PARENT_OF', label: 'Parent of' },
+              { value: 'CHILD_OF', label: 'Child of' },
+              { value: 'SPOUSE_OF', label: 'Spouse of' },
+              { value: 'SIBLING_OF', label: 'Sibling of' },
             ]}
             value={relationship.type}
             onChange={(e) => setRelationship(prev => ({ ...prev, type: e.target.value }))}

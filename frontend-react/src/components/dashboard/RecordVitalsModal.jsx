@@ -6,7 +6,7 @@ import Input from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import api from '@/lib/axios'
 
-export default function RecordVitalsModal({ isOpen, onClose }) {
+export default function RecordVitalsModal({ isOpen, onClose, onSuccess }) {
   const [loading, setLoading] = useState(false)
   const { register, handleSubmit, reset } = useForm()
 
@@ -49,7 +49,7 @@ export default function RecordVitalsModal({ isOpen, onClose }) {
       await Promise.all(requests)
       toast.success('Vitals recorded successfully')
       reset()
-      onClose()
+      onSuccess ? onSuccess() : onClose()
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to record vitals')
     } finally {

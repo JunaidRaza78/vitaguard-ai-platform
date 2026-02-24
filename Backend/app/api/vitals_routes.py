@@ -322,3 +322,59 @@ async def get_my_latest_vitals(
     except Exception as e:
         logger.error(f"Error getting latest vitals: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to get latest vitals")
+
+
+@router.get(
+    "/my/trend",
+    summary="My vitals chart data",
+)
+async def get_my_vitals_trend(
+    limit: int = Query(default=30, ge=1, le=200),
+    current_user: dict = Depends(get_current_active_user),
+):
+    """
+    Get chart-ready combined vitals trend for the current user.
+    Returns an array of {date, heartRate, bp_systolic, bp_diastolic}
+    sorted by date ascending.
+    """
+    try:
+        from shared.database.neo4j.operations.vitals_ops import VitalsOperations
+        from shared.database.neo4j.neo4j_client import Neo4jClient
+
+        user_id = current_user["user_id"]
+        client = Neo4jClient()
+        ops = VitalsOperations(client)
+
+        hr_raw      = ops.get_user_vitals(user_id, "heart_rate", limit=limit)
+        sys_raw     = ops.get_user_vitals(user_id, "blood_pressure_systolic", limit=limit)
+        dia_raw     = ops.get_user_vitals(user_id, "blood_pressure_diastolic", limit=limit)
+        temp_raw    = ops.get_user_vitals(user_id, "temperature", limit=limit)
+
+        # Merge all readings into a date-keyed dict (ascending order)
+        points: dict = {}
+
+        def _add(raw_list, key):
+            for v in reversed(raw_list):   # reversed → oldest first
+                date = str(v.get("date", "") or "").strip()
+                if not date:
+                    continue
+                if date not in points:
+                    points[date] = {"date": date}
+                try:
+                    points[date][key] = round(float(v.get("value", 0)), 1)
+                except (TypeError, ValueError):
+                    pass
+
+        _add(hr_raw,   "heartRate")
+        _add(sys_raw,  "bp_systolic")
+        _add(dia_raw,  "bp_diastolic")
+        _add(temp_raw, "temperature")
+
+        data = sorted(points.values(), key=lambda x: x["date"])
+        return {"data": data, "total": len(data)}
+    except Exception as e:
+        logger.error(f"Error getting vitals chart data: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get vitals trend",
+        )

@@ -292,6 +292,32 @@ class FamilyOperations(GraphOperations):
 
     # ==================== Family Tree Operations ====================
 
+    def get_family_member_relationships(
+        self,
+        familyId: str,
+        database: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all PARENT_OF / CHILD_OF / SPOUSE_OF / SIBLING_OF relationships
+        that exist between members of a specific family.
+        Works regardless of which member initiated the relationship.
+        """
+        try:
+            query = """
+            MATCH (u1:User)-[:MEMBER_OF]->(:Family {familyId: $familyId})<-[:MEMBER_OF]-(u2:User)
+            MATCH (u1)-[r:PARENT_OF|CHILD_OF|SPOUSE_OF|SIBLING_OF]->(u2)
+            RETURN u1.userId AS source, type(r) AS type, u2.userId AS target
+            """
+            logger.debug(f"Getting member relationships for family: {familyId}")
+            records = self.execute_query(query, {"familyId": familyId}, database)
+            return [
+                {"source": rec["source"], "type": rec["type"], "target": rec["target"]}
+                for rec in records
+            ]
+        except Exception as e:
+            logger.error(f"Failed to get family member relationships: {str(e)}")
+            raise
+
     def create_family_relationship(
         self,
         user1_id: str,
@@ -342,17 +368,28 @@ class FamilyOperations(GraphOperations):
             List of path dictionaries
         """
         try:
+            # Only traverse family relationship types (not MEMBER_OF).
+            # Use Cypher's startNode()/endNode() + type() to extract source/target
+            # directly as plain values — avoids Python-driver Node attribute issues.
             query = f"""
-            MATCH path = (a:User {{userId: $userId}})-[*1..{depth}]-(b:User)
-            RETURN path, relationships(path) as rels, nodes(path) as nodes
+            MATCH path = (a:User {{userId: $userId}})
+                         -[r:PARENT_OF|CHILD_OF|SPOUSE_OF|SIBLING_OF*1..{depth}]-
+                         (b:User)
+            WITH nodes(path) as pathNodes, relationships(path) as pathRels
+            RETURN
+                pathNodes as nodes,
+                [rel in pathRels | {{
+                    source: startNode(rel).userId,
+                    target: endNode(rel).userId,
+                    type:   type(rel)
+                }}] as rels
             """
             logger.debug(f"Getting family tree for user {user_id} (depth: {depth})")
             records = self.execute_query(query, {"userId": user_id}, database)
             tree = [
                 {
-                    "path": record["path"],
-                    "relationships": record["rels"],
-                    "nodes": record["nodes"]
+                    "nodes": record["nodes"],
+                    "rels":  record["rels"],
                 }
                 for record in records
             ]

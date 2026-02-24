@@ -33,8 +33,9 @@ class FamilyCreate(BaseModel):
 
 
 class FamilyMemberAdd(BaseModel):
-    user_id: Optional[str] = Field(default=None, min_length=1)
+    user_id: Optional[str] = Field(default=None)
     email: Optional[str] = Field(default=None)
+    name: Optional[str] = Field(default=None, description="Name for guest members not in the system")
     role: FamilyMemberRole = Field(default=FamilyMemberRole.MEMBER)
 
     model_config = {"from_attributes": True}
@@ -57,6 +58,7 @@ class FamilyResponse(BaseModel):
     name: str
     createdBy: Optional[str] = None
     createdAt: Optional[str] = None
+    member_count: int = 0
 
     model_config = {"from_attributes": True}
 

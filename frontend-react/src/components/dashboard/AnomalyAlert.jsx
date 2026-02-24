@@ -1,7 +1,6 @@
 import { motion } from 'framer-motion'
 import { AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { formatRelativeTime } from '@/lib/utils'
 
 const severityColors = {
   high: 'border-rose-500/30 bg-rose-500/5',
@@ -29,7 +28,6 @@ export default function AnomalyAlert({ anomaly, index = 0 }) {
   const metric = anomaly?.metric || formatVitalType(anomaly?.vital_type)
   const severity = anomaly?.severity || levelToSeverity[anomaly?.level] || 'medium'
   const trend = anomaly?.trend || (anomaly?.level === 'critical' ? 'up' : 'down')
-  const timestamp = anomaly?.timestamp || anomaly?.date
 
   return (
     <motion.div
@@ -54,9 +52,6 @@ export default function AnomalyAlert({ anomaly, index = 0 }) {
           )}
         </div>
         <p className="text-xs text-white/50 mt-1">{anomaly?.message || 'Anomaly detected'}</p>
-        {timestamp && (
-          <p className="text-[10px] text-white/30 mt-1">{formatRelativeTime(timestamp)}</p>
-        )}
       </div>
       <span className={cn(
         'text-[10px] font-medium px-2 py-0.5 rounded-full uppercase',
