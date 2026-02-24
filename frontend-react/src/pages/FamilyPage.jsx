@@ -122,7 +122,14 @@ export default function FamilyPage() {
   }
 
   const createRelationship = async () => {
-    if (!selectedFamily || !relationship.member1 || !relationship.member2) return
+    if (!relationship.member1 || !relationship.member2) {
+      toast.error('Please select both members')
+      return
+    }
+    if (relationship.member1 === relationship.member2) {
+      toast.error('Please select two different members')
+      return
+    }
     try {
       await api.post(`/api/v1/families/relationships`, {
         user1_id: relationship.member1,
@@ -131,7 +138,10 @@ export default function FamilyPage() {
       })
       toast.success('Relationship created')
       setShowRelationshipModal(false)
-      selectFamily(selectedFamily)
+      // Refresh tree data
+      const fid = selectedFamily.familyId || selectedFamily.family_id || selectedFamily.id
+      const relsRes = await api.get(`/api/v1/families/${fid}/relationships`)
+      setFamilyTree(relsRes.data)
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Failed to create relationship')
     }
@@ -217,7 +227,15 @@ export default function FamilyPage() {
               <Button onClick={() => setShowAddMemberModal(true)} variant="ghost" size="sm">
                 <UserPlus className="w-4 h-4" /> Add
               </Button>
-              <Button onClick={() => setShowRelationshipModal(true)} variant="ghost" size="sm">
+              <Button onClick={() => {
+                const getId = m => m.userId || m.user_id || m.id || ''
+                setRelationship({
+                  member1: members[0] ? getId(members[0]) : '',
+                  member2: members[1] ? getId(members[1]) : '',
+                  type: 'PARENT_OF',
+                })
+                setShowRelationshipModal(true)
+              }} variant="ghost" size="sm">
                 <Link2 className="w-4 h-4" /> Relationship
               </Button>
             </div>

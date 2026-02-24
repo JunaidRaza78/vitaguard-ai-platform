@@ -18,6 +18,14 @@ const QUICK_PROMPTS = [
 
 const HISTORY_KEY = 'doc_chat_history'
 
+// Strip UUID prefix from stored filenames: {user_uuid}_{8hex}_{original} → {original}
+function cleanFileName(raw) {
+  if (!raw) return 'Unknown file'
+  const parts = raw.split('_')
+  if (parts.length >= 3) return parts.slice(2).join('_')
+  return raw
+}
+
 export default function DocumentsPage() {
   const [dragActive, setDragActive] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -28,7 +36,13 @@ export default function DocumentsPage() {
   const [qaMessages, setQaMessages] = useState(() => {
     try {
       const saved = localStorage.getItem(HISTORY_KEY)
-      return saved ? JSON.parse(saved) : []
+      if (!saved) return []
+      const msgs = JSON.parse(saved)
+      // Remove trailing unprocessed user messages (sent before navigating away)
+      while (msgs.length > 0 && msgs[msgs.length - 1].role === 'user') {
+        msgs.pop()
+      }
+      return msgs
     } catch {
       return []
     }
@@ -283,13 +297,14 @@ export default function DocumentsPage() {
                     <div className="mt-2 pt-2 border-t border-white/10">
                       <p className="text-[10px] text-white/30 uppercase tracking-wider mb-1">Sources from your documents</p>
                       {msg.sources.map((src, j) => {
-                        const fileName = typeof src === 'object' ? src.file : src
+                        const fileName = cleanFileName(typeof src === 'object' ? src.file : src)
                         const relevance = typeof src === 'object' ? src.relevance : null
+                        const relevanceAbs = relevance != null ? Math.abs(relevance) : null
                         return (
                           <div key={j} className="flex items-center justify-between gap-2 mt-0.5">
-                            <p className="text-[11px] text-cyan-400/70 truncate">• {fileName || 'Unknown file'}</p>
-                            {relevance != null && (
-                              <span className="text-[10px] text-emerald-400/60 flex-shrink-0">{relevance}%</span>
+                            <p className="text-[11px] text-cyan-400/70 truncate">• {fileName}</p>
+                            {relevanceAbs != null && relevanceAbs > 0 && (
+                              <span className="text-[10px] text-emerald-400/60 flex-shrink-0">{relevanceAbs}%</span>
                             )}
                           </div>
                         )

@@ -140,6 +140,17 @@ export default function ChatPage() {
     }
   }
 
+  // Delete a single user message + the paired assistant reply after it
+  const deleteMessage = (index) => {
+    const current = [...messages]
+    // Remove user message + next assistant reply if it exists
+    const toRemove = [index]
+    if (current[index + 1]?.role === 'assistant') toRemove.push(index + 1)
+    const updated = current.filter((_, i) => !toRemove.includes(i))
+    const afterDelete = persistMessage(userId, activeId, updated)
+    setSessions(afterDelete)
+  }
+
   const checkEmergency = (text) => emergencyKeywords.some(kw => text.toLowerCase().includes(kw))
 
   const handleSend = async () => {
@@ -286,7 +297,7 @@ export default function ChatPage() {
               key={i}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+              className={`flex gap-3 group ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
             >
               <div className={`w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${
                 msg.role === 'user'
@@ -296,6 +307,18 @@ export default function ChatPage() {
                 {msg.role === 'user' ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
               </div>
               <div className={`max-w-[75%] ${msg.role === 'user' ? 'text-right' : ''}`}>
+                {/* Delete button — only on user messages, shows on hover */}
+                {msg.role === 'user' && (
+                  <div className="flex justify-end mb-1">
+                    <button
+                      onClick={() => deleteMessage(i)}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-rose-500/15 text-white/20 hover:text-rose-400 transition-all"
+                      title="Delete message"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
                 <div className={`rounded-2xl p-4 text-sm leading-relaxed ${
                   msg.role === 'user'
                     ? 'bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 border border-violet-500/20 text-white'
